@@ -168,9 +168,9 @@ class Driver:
         # 1. calculate end point
         u = np.array((np.cos(angle), np.sin(angle))) # unit vector
         end_pos = pos + u * max_range
+        ray = (pos, end_pos)
 
         # 2. check for intersections with the track
-        ray = (pos, end_pos)
         len_track_poly = len(track_poly)
         for i in range(len_track_poly):
             # skip implicit segments (that connect outer to inner walls & vice versa)
@@ -179,19 +179,28 @@ class Driver:
 
             # cast ray
             seg = (track_poly[i], track_poly[(i+1) % len_track_poly])
-
             if tools.do_segments_intersect(ray, seg):
                 intersection = tools.get_segment_intersection(ray, seg)
                 if intersection is None: continue
 
-                dist_px = np.hypot(*(intersection - pos))
-                dist_yds = dist_px / consts.PX_YARD_RATIO
-
+                dist_yds = np.hypot(*(intersection - pos)) / consts.PX_YARD_RATIO
                 if dist_yds < closest_obstacle:
                     closest_obstacle = dist_yds
 
         # 3. check for intersections with vehicles
         bboxes = [driver.bbox() for driver in drivers if driver.car_num != self.car_num]
+        for bbox in bboxes:
+            len_bbox = len(bbox)
+            for i in range(len_bbox):
+                # cast ray
+                seg = (bbox[i], bbox[(i+1) % len_bbox])
+                if tools.do_segments_intersect(ray, seg):
+                    intersection = tools.get_segment_intersection(ray, seg)
+                    if intersection is None: continue
+
+                    dist_yds = np.hypot(*(intersection - pos)) / consts.PX_YARD_RATIO
+                    if dist_yds < closest_obstacle:
+                        closest_obstacle = dist_yds
 
         return closest_obstacle
 
