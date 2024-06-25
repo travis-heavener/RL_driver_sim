@@ -6,6 +6,7 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
+import numpy as np
 import pygame
 
 from consts import WIDTH, HEIGHT, FPS, GRASS_COLOR_RGB
@@ -69,8 +70,6 @@ class SimContainer:
 
             for driver in self.drivers: # render each driver
                 driver.draw(self.window)
-
-            pygame.draw.line(self.window, (255,0,0), (999,846), (1015,834), 4)
 
             pygame.display.flip() # display frame
             

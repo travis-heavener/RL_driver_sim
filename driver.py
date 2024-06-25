@@ -47,10 +47,12 @@ MOOD_ECO      = DriverMood(accel=0.35, braking=0.70, speed=0.65, follow=0.50, sh
 # Driver constructor for new, blank-slate driver models
 #
 # #############################################
+_NEXT_DRIVER_ID = 1
 class Driver:
     model: models.Sequential = None
     mood: DriverMood = MOOD_NORMAL
     img: pygame.Surface = None
+    car_num: int
 
     # physics
     x, y, width, length = 0, 0, 0, 0
@@ -63,6 +65,11 @@ class Driver:
     rpms: float = consts.IDLE_RPMS
 
     def __init__(self, mood: DriverMood=None):
+        # update racer number
+        global _NEXT_DRIVER_ID
+        self.car_num = _NEXT_DRIVER_ID
+        _NEXT_DRIVER_ID += 1
+
         # copy image
         self.width = ceil(consts.VEHICLE_WIDTH_Y * consts.PX_YARD_RATIO)
         self.length = ceil(consts.VEHICLE_LENGTH_Y * consts.PX_YARD_RATIO)
@@ -85,6 +92,46 @@ class Driver:
         self.x = x; self.y = y
 
     #
+    # get the bounding box around the vehicle of its vertices
+    #
+    def bbox(self):
+        # NOTE #1: the driver is drawn so that self.x and self.y are the CENTER of the image
+        # NOTE #2: unrotated vehicle is wider than taller, so its height *is* self.width
+        x, y, width, height = self.x, self.y, self.length, self.width
+        corners = np.array((
+            (x - width/2, y - height/2),
+            (x + width/2, y - height/2),
+            (x + width/2, y + height/2),
+            (x - width/2, y + height/2)
+        ))
+
+        # rotate bbox
+        theta = np.deg2rad(-self.direction)
+        rot_matrix = np.array((
+            (np.cos(theta), -np.sin(theta)),
+            (np.sin(theta), np.cos(theta))
+        ))
+
+        rotated_bbox = []
+        pos = np.array((self.x, self.y))
+        for corner in corners:
+            relative_corner = corner - pos
+            rotated_bbox.append( np.dot(rot_matrix, relative_corner) + pos )
+
+        return np.array(rotated_bbox)
+
+    #
+    # draws the driver on the window
+    #
+    def draw(self, window: pygame.Surface) -> None:
+        img = pygame.transform.rotate(self.img, self.direction)
+        center_pos = (self.x - self.length / 2, self.y - self.width / 2) # shifted back half-way to draw on middle
+        center_rect = self.img.get_rect(topleft=center_pos).center
+        pos = img.get_rect(center=center_rect)
+
+        window.blit(img, pos)
+    
+    #
     # enables the driver to make a decision, evaluate it, and update the model if they haven't crashed
     #
     def update(self, track_poly: np.ndarray, drivers: list[any], dt: float) -> None:
@@ -102,29 +149,11 @@ class Driver:
         # evaluate task & backpropegate
 
     #
-    # draws the driver on the window
-    #
-    def draw(self, window: pygame.Surface) -> None:
-        img = pygame.transform.rotate(self.img, self.direction)
-        center_pos = (self.x - self.length / 2, self.y - self.width / 2) # shifted back half-way to draw on middle
-        center_rect = self.img.get_rect(topleft=center_pos).center
-        pos = img.get_rect(center=center_rect)
-
-        window.blit(img, pos)
-    
-    #
     # searches for any obstacles at the surrounding angles
     # returns a list of (angle, distance) pairs for each direction
     #
     def _scan_sensors(self, track_poly: np.ndarray, drivers: list[any]) -> tuple[tuple[float, float]]:
-        sensor_data = []
-
-        for angle in consts.SENSOR_ANGLES:
-            sensor_data.append( (angle, self._emit_ray(track_poly, drivers, angle)) )
-
-        print(sensor_data)
-        exit(1)
-        return sensor_data
+        return [ (angle, self._emit_ray(track_poly, drivers, angle)) for angle in consts.SENSOR_ANGLES ]
 
     #
     # searches for the nearest obstacle from the given angle out
@@ -162,6 +191,7 @@ class Driver:
                     closest_obstacle = dist_yds
 
         # 3. check for intersections with vehicles
+        bboxes = [driver.bbox() for driver in drivers if driver.car_num != self.car_num]
 
         return closest_obstacle
 

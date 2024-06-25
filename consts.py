@@ -41,7 +41,7 @@ GEAR_RATIOS = (3.50, 2.73, 2.13, 1.66, 1.30, 1.01, 0.79)
 
 # sensors config
 SHIFT_CONF_THRESH = 0.9 # how confident the model must be to shift up or down
-SENSOR_RANGE_Y = 20 # how far the sensors reach around the vehicle, in yards
+SENSOR_RANGE_Y = 100 # how far the sensors reach around the vehicle, in yards
 SENSOR_ANGLES = (0, 30, 45, 60, 90, -30, -45, -60, -90, -135, 135, 180)
 SENSOR_NOT_FOUND = float("inf") # absurdly large number to indicate the sensor couldn't find anything nearby
 
