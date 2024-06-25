@@ -36,7 +36,7 @@ class SimContainer:
         self.clock = pygame.time.Clock()
         self.track = track
 
-        pygame.display.set_caption("RL Learns to Drive: Circuit Edition")
+        pygame.display.set_caption("RLDS: Circuit Edition")
     
     def addDrivers(self, *drivers: list[Driver]) -> None:
         # put drivers into starting grid
@@ -48,9 +48,8 @@ class SimContainer:
 
         self.drivers.extend(drivers)
 
-    def start(self) -> None:
+    def run(self) -> None:
         running = True
-        is_render_frame = True # if True, moves drivers & re-renders frame; otherwise just moves drivers
 
         # game loop
         while running:
@@ -59,23 +58,24 @@ class SimContainer:
                 if event.type == pygame.QUIT:
                     running = False
             
-            # move drivers regardless
+            # move drivers
             if self.dt > 0:
                 for driver in self.drivers:
-                    driver.update(self.drivers, self.dt)
+                    driver.update(self.track.track_poly, self.drivers, self.dt)
 
-            # render frame if necessary
-            if is_render_frame:
-                self.window.fill(GRASS_COLOR_RGB) # wipe screen
-                self.track.draw(self.window) # render track
+            # render frame
+            self.window.fill(GRASS_COLOR_RGB) # wipe screen
+            self.track.draw(self.window) # render track
 
-                for driver in self.drivers: # render each driver
-                    driver.draw(self.window)
+            for driver in self.drivers: # render each driver
+                driver.draw(self.window)
 
-                pygame.display.flip() # display frame
+            pygame.draw.line(self.window, (255,0,0), (999,846), (1015,834), 4)
 
-            is_render_frame = not is_render_frame
-            self.dt = self.clock.tick(FPS * 2) / 1e3 # extract frame time gap
+            pygame.display.flip() # display frame
+            
+            # extract frame time gap
+            self.dt = self.clock.tick(FPS) / 1e3
 
         # end game
         pygame.quit()

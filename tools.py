@@ -6,6 +6,37 @@ import consts
 
 # #############################################
 #
+# Point class
+#
+# #############################################
+
+class Point:
+    def __init__(self, x: float, y: float):
+        self.x, self.y = x, y
+    
+    def __str__(self):
+        return f"({self.x}, {self.y})"
+    
+    def astuple(self):
+        return (self.x, self.y)
+
+    def __add__(self, p2):
+        return Point(self.x + p2.x, self.y + p2.y)
+    
+    def __sub__(self, p2):
+        return Point(self.x - p2.x, self.y - p2.y)
+    
+    def __mul__(self, s):
+        return Point(self.x * s, self.y * s)
+    
+    def __rmul__(self, s):
+        return Point(self.x * s, self.y * s)
+    
+    def cross2d(self, p2):
+        return self.x * p2.y - self.y * p2.x
+
+# #############################################
+#
 #               vehicle tools
 #
 # #############################################
@@ -69,3 +100,40 @@ def gen_inner_spline(tck, outer_spline):
     u_final = np.linspace(0, 1, num=200)
     width_px = consts.TRACK_WIDTH_Y * consts.PX_YARD_RATIO
     return __gen_offset_line(tck, u_final, outer_spline, -width_px)
+
+#
+# check if a line segment intersects with another segment
+#
+def __check_orientation(A, B, C):
+    return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x)
+
+def do_segments_intersect(s1, s2) -> bool:
+    # ref #1: https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect/
+    # ref #2: https://stackoverflow.com/a/9997374
+    # check orientation of lines against each other
+    p1, q1, p2, q2 = *s1, *s2
+    A, B = Point(*p1), Point(*q1)
+    C, D = Point(*p2), Point(*q2)
+
+    return (__check_orientation(A, C, D) != __check_orientation(B, C, D) and
+            __check_orientation(A, B, C) != __check_orientation(A, B, D))
+
+# return the intersection point of two segments
+# ref: https://stackoverflow.com/a/565282
+# all those multi lectures and linear algebra lessons to look this up... smh
+def get_segment_intersection(s1, s2) -> np.ndarray:
+    p1, q1, p2, q2 = *s1, *s2
+    A, B = Point(*p1), Point(*q1)
+    C, D = Point(*p2), Point(*q2)
+    
+    # r & s are the vectors aligned with the direction of each segment
+    # (A, B) is (A, A+r) -> B=A+r
+    r, s = B-A, D-C
+
+    # segments intersect at A + tr = B + us
+    r_cross_x = r.cross2d(s)
+    if r_cross_x == 0: return None # no intersection, prevent div by 0
+
+    t = (C - A).cross2d(s) / r_cross_x
+
+    return np.array( (A + t*r).astuple() )

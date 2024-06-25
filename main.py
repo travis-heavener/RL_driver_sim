@@ -13,25 +13,13 @@ def main(track_src: str):
 
     # create drivers
     drivers = [
-        # Driver(), Driver(MOOD_SPEEDY), Driver(MOOD_YOLO), Driver(MOOD_NERVOUS), Driver(MOOD_ECO)
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver(),
-        Driver()
+        Driver(), Driver(MOOD_SPEEDY), Driver(MOOD_YOLO), Driver(MOOD_NERVOUS), Driver(MOOD_ECO)
     ]
 
     sim = SimContainer(track) # initialize simulation window
     sim.addDrivers(*drivers) # add drivers to sim
 
-    sim.start() # start the simulation
+    sim.run() # start the simulation
 
     # NOTE: code executed here is after game completion
 

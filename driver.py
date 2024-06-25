@@ -87,11 +87,19 @@ class Driver:
     #
     # enables the driver to make a decision, evaluate it, and update the model if they haven't crashed
     #
-    def update(self, drivers: list[any], dt: float) -> None:
-        pass
-        # self.direction += 360 * dt
-        # self.direction %= 360
-        # self.x += 4 * consts.PX_YARD_RATIO  * dt
+    def update(self, track_poly: np.ndarray, drivers: list[any], dt: float) -> None:
+        # poll each sensor
+        sensor_data = self._scan_sensors(track_poly, drivers)
+
+        # run model
+
+        # record start conditions
+
+        # perform task
+
+        # check for collisions (if collided, die)
+
+        # evaluate task & backpropegate
 
     #
     # draws the driver on the window
@@ -103,6 +111,59 @@ class Driver:
         pos = img.get_rect(center=center_rect)
 
         window.blit(img, pos)
+    
+    #
+    # searches for any obstacles at the surrounding angles
+    # returns a list of (angle, distance) pairs for each direction
+    #
+    def _scan_sensors(self, track_poly: np.ndarray, drivers: list[any]) -> tuple[tuple[float, float]]:
+        sensor_data = []
+
+        for angle in consts.SENSOR_ANGLES:
+            sensor_data.append( (angle, self._emit_ray(track_poly, drivers, angle)) )
+
+        print(sensor_data)
+        exit(1)
+        return sensor_data
+
+    #
+    # searches for the nearest obstacle from the given angle out
+    # returns the distance to the nearest obstacle
+    #
+    def _emit_ray(self, track_poly: np.ndarray, drivers: list[any], angle_deg: float) -> float:
+        closest_obstacle = consts.SENSOR_NOT_FOUND
+        max_range = consts.SENSOR_RANGE_Y * consts.PX_YARD_RATIO
+        pos = np.array((self.x, self.y))
+        angle = np.deg2rad(self.direction + angle_deg)
+
+        # 1. calculate end point
+        u = np.array((np.cos(angle), np.sin(angle))) # unit vector
+        end_pos = pos + u * max_range
+
+        # 2. check for intersections with the track
+        ray = (pos, end_pos)
+        len_track_poly = len(track_poly)
+        for i in range(len_track_poly):
+            # skip implicit segments (that connect outer to inner walls & vice versa)
+            # middle 2 pts connect outer to inner, outer 2 pts connect inner to outer
+            if i == len_track_poly-1 or i+1 == len_track_poly // 2: continue
+
+            # cast ray
+            seg = (track_poly[i], track_poly[(i+1) % len_track_poly])
+
+            if tools.do_segments_intersect(ray, seg):
+                intersection = tools.get_segment_intersection(ray, seg)
+                if intersection is None: continue
+
+                dist_px = np.hypot(*(intersection - pos))
+                dist_yds = dist_px / consts.PX_YARD_RATIO
+
+                if dist_yds < closest_obstacle:
+                    closest_obstacle = dist_yds
+
+        # 3. check for intersections with vehicles
+
+        return closest_obstacle
 
 # #############################################
 #
