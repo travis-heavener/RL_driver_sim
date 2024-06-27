@@ -6,12 +6,15 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
+from time import time
 import numpy as np
 import pygame
 
+import consts
 from consts import WIDTH, HEIGHT, FPS, GRASS_COLOR_RGB
 from driver import Driver, TrainedDriver
 from track import Track
+import tools
 
 #
 # Holds all code pertaining to rendering the window and
@@ -44,35 +47,63 @@ class SimContainer:
         i = len(self.drivers)
 
         for driver in drivers:
-            driver.set_pos(*self.track.grid[i])
+            driver.set_start_pos(*self.track.grid[i])
             i += 1
 
         self.drivers.extend(drivers)
 
     def run(self) -> None:
-        running = True
+        is_running = True
+        last_trained_ts = time()
+        generation_num = 1
 
         # game loop
-        while running:
+        while is_running:
             # check for closure request event (thanks https://www.pygame.org/docs/)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    running = False
+                    is_running = False
             
-            # move drivers
+            # update drivers
             if self.dt > 0:
-                for driver in self.drivers:
-                    driver.update(self.track.track_poly, self.drivers, self.dt)
+                for driver in self.drivers: # move drivers first
+                    driver.move(self.track.track_poly, self.drivers, self.dt)
+
+                for driver in self.drivers: # rate each driver's move
+                    driver.evaluate(self.track.track_poly, self.drivers)
 
             # render frame
             self.window.fill(GRASS_COLOR_RGB) # wipe screen
             self.track.draw(self.window) # render track
 
             for driver in self.drivers: # render each driver
-                driver.draw(self.window)
+                driver.draw(self.window, draw_bbox=False)
 
-            pygame.display.flip() # display frame
+            # display frame
+            pygame.display.flip()
+
+            # check if the generation has ended
+            is_driver_remaining = False
+            for driver in self.drivers:
+                if not driver.has_crashed:
+                    is_driver_remaining = True
+                    break
             
+            if not is_driver_remaining or time() - last_trained_ts > consts.MAX_GENERATION_TIME:
+                tools.log(f"Generation #{generation_num} ended.")
+                generation_num += 1
+
+                # train models
+                for driver in self.drivers:
+                    driver.train()
+                    driver.reset()
+
+                last_trained_ts = time() # update last training timestamp
+                tools.log("Training complete.")
+
+            if generation_num > consts.NUM_GENERATIONS:
+                is_running = False
+
             # extract frame time gap
             self.dt = self.clock.tick(FPS) / 1e3
 

@@ -11,7 +11,7 @@ import tools
         LINES 1-12:
             CAR STARTING GRID POSITIONS, FACING RIGHT
         LINES 13+:
-            TRACK VERTICES, USE YARDS AS UNITS
+            TRACK VERTICES, USE METERS AS UNITS
 
 """
 
@@ -69,8 +69,8 @@ class Track:
         )
         scale_factor = min( (MAX_WIDTH, MAX_HEIGHT) / np.ptp(outer_wall, axis=0) )
 
-        # update pixels per yard ratio
-        consts.set_px_yard_ratio(scale_factor)
+        # update pixels per meter ratio
+        consts.set_px_ratio(scale_factor)
 
         # scale and center on frame
         outer_wall *= scale_factor
@@ -88,8 +88,8 @@ class Track:
         self.start_line = np.array([outer_wall[0], inner_wall[0]]).astype(int)
 
         # define draw constants
-        self.__START_PX = round(consts.START_WIDTH_Y * consts.PX_YARD_RATIO)
-        self.__BARRIER_PX = round(consts.BARRIER_WIDTH_Y * consts.PX_YARD_RATIO)
+        self.__START_PX = round(consts.START_WIDTH_M * consts.PX_METER_RATIO)
+        self.__BARRIER_PX = round(consts.BARRIER_WIDTH_M * consts.PX_METER_RATIO)
 
     def draw(self, window: pygame.Surface) -> None:
         # render track itself

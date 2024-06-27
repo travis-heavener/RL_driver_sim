@@ -1,8 +1,12 @@
 from math import sin, pi
+import tensorflow as tf
 import numpy as np
 from scipy.interpolate import splprep, splev
 
 import consts
+
+def log(*args): print("Note:", *args)
+def warn(*args): print("Warn:", *args)
 
 # #############################################
 #
@@ -55,18 +59,45 @@ def getEngineHP(rpms: int, throttle: float) -> float:
 
 # calculate the resulting net force the vehicle experiences at the given moment
 def calcVehicleForce(gear: int, rpms: int, throttle: float) -> float:
-    speed_m_s = getVehicleMPH(gear, rpms) / 2.237 # convert mph to m/s
-    f_engine = getEngineHP(rpms, throttle) * 745.7 / speed_m_s # 1 HP ~ 745.7 Watts
-    f_drag = -consts.DRAG_COEF * (speed_m_s ** 2)
+    # handle speeding up and braking
+    speed = getSpeedFromRPMs(gear, max(consts.IDLE_RPMS, rpms))
+    f_engine = 0
+    if throttle > 0:
+        f_engine = getEngineHP(rpms, throttle) * 745.7 / speed # 1 HP ~ 745.7 Watts
+    else:
+        f_engine = -consts.BRAKING_FRICTION * -throttle * __VEHICLE_MASS * consts.GRAVITY_ACCEL
+
+    f_drag = -consts.DRAG_COEF * (speed ** 2)
+
     f_rolling = -consts.ROLLING_FRICTION * __VEHICLE_MASS * consts.GRAVITY_ACCEL
+
     t_ebrake = -consts.ENGINE_BRAKE_COEF * rpms
-    f_ebrake = t_ebrake * consts.GEAR_RATIOS[gear-1] * consts.FINAL_DRIVE / (consts.ROLLING_DIAMETER * 0.0254) # in to meters
+    f_ebrake = t_ebrake * consts.GEAR_RATIOS[gear-1] * consts.FINAL_DRIVE / consts.ROLLING_DIAMETER_M
     return f_engine + f_drag + f_rolling + f_ebrake
 
 # calculate speed of car at a given moment
-def getVehicleMPH(gear: int, rpms: int) -> float:
+def getSpeedFromRPMs(gear: int, rpms: int) -> float:
     wheel_rpms = rpms / (consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1])
-    return wheel_rpms * consts.ROLLING_DIAMETER * pi / 1056 # simplified conversion from m/s to mph
+    circumference = consts.ROLLING_DIAMETER_M * pi # meters
+    return wheel_rpms * circumference / 60 # from meters/minute to meters/second
+
+# return the necessary RPMs for the given speed in the given gear
+def getRPMsFromSpeed(speed: float, gear: int) -> float:
+    circumference = consts.ROLLING_DIAMETER_M * pi # meters
+    wheel_rpms = speed * 60 / circumference # from meters/second to meters/minute
+    return wheel_rpms * consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1]
+
+# convert mph to m/s
+def mph2ms(speed: float) -> float:
+    return speed / 2.237
+
+# convert m/s to mph
+def ms2mph(speed: float) -> float:
+    return speed * 2.237
+
+# convert lbs to kg
+def lbs2kg(lbs: float) -> float:
+    return lbs / 2.205
 
 # #############################################
 #
@@ -93,12 +124,12 @@ def gen_outer_spline(vertices):
     tck = splprep(vertices.T, s=0, k=3, per=True)[0]
     u_final = np.linspace(0, 1, num=200)
     center_spline = np.array(splev(u_final, tck))
-    width_px = consts.TRACK_WIDTH_Y * consts.PX_YARD_RATIO
+    width_px = consts.TRACK_WIDTH_M * consts.PX_METER_RATIO
     return tck, center_spline.T
 
 def gen_inner_spline(tck, outer_spline):
     u_final = np.linspace(0, 1, num=200)
-    width_px = consts.TRACK_WIDTH_Y * consts.PX_YARD_RATIO
+    width_px = consts.TRACK_WIDTH_M * consts.PX_METER_RATIO
     return __gen_offset_line(tck, u_final, outer_spline, -width_px)
 
 #
@@ -137,3 +168,13 @@ def get_segment_intersection(s1, s2) -> np.ndarray:
     t = (C - A).cross2d(s) / r_cross_x
 
     return np.array( (A + t*r).astuple() )
+
+
+# #############################################
+#
+#               model tools
+#
+# #############################################
+
+def scaled_tanh(inputs):
+    return tf.keras.activations.tanh(inputs * 0.25)
