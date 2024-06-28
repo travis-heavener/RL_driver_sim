@@ -147,7 +147,7 @@ class Driver:
 
         if draw_bbox:
             pygame.draw.lines(window, (0,0,255), False, self.bbox(closed=True), 2)
-    
+
     #
     # enables the driver to make a decision, evaluate it, and update the model if they haven't crashed
     #
@@ -199,7 +199,8 @@ class Driver:
 
         # allow steering if not parked
         if not self.is_parked():
-            self.direction += self.steering * consts.STEERING_ANGLE * dt
+            # -1 is left, +1 is right
+            self.direction -= self.steering * consts.STEERING_ANGLE * dt
 
         speed_scaled = self.speed * dt * consts.PX_METER_RATIO
         angle_rad = math.radians(self.direction)
@@ -230,6 +231,8 @@ class Driver:
         if type(self.direction) is not float: self.direction = float(self.direction)
         if type(self.throttle) is not float: self.throttle = float(self.throttle)
         if type(self.steering) is not float: self.steering = float(self.steering)
+
+        # print(f"Speed: {round(tools.ms2mph(self.speed))} mph, Gear: {self.gear}, RPMs: {round(self.rpms)}, Throttle: {self.throttle}")
 
     #
     # get the driver's current state as a dict
@@ -545,11 +548,11 @@ class Driver:
         # calculate target data
         target_outputs = []
         
-        num_outputs = len(outputs[0])
         for output, reward in zip(outputs, rewards):
             target_outputs.append([])
-            for i in range(num_outputs):
-                target_outputs[-1].append( output[i] * reward[i] * consts.INTERPOLATION_FACTOR )
+            for i in range(consts.NET_OUTPUT_SHAPE):
+                offset = tools.sign(float(output[i])) * reward[i] * consts.INTERPOLATION_FACTOR
+                target_outputs[-1].append( output[i] + offset )
     
         # compile training data
         training_x = np.array(inputs)[:,0,:].astype(np.float32)

@@ -102,7 +102,6 @@ class SimContainer:
             text_surface, text_rect = self.font_medium.render(f"Generation #{generation_num}", consts.TEXT_COLOR_RGB)
             self.window.blit(text_surface, (HEIGHT // 100, HEIGHT // 100))
 
-
             # display frame
             pygame.display.flip()
 

@@ -242,7 +242,7 @@ def cross2d(A: np.ndarray, B: np.ndarray) -> float:
 # #############################################
 
 def scaled_tanh(inputs):
-    return tf.keras.activations.tanh(inputs * 0.25)
+    return tf.keras.activations.tanh(inputs * 1)
 
 # #############################################
 #

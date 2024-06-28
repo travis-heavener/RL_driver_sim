@@ -68,12 +68,12 @@ TRACK_BOUNDS = (
 #
 NET_INPUT_SHAPE = len(SENSOR_ANGLES) + 3 # n directions + speed, gear, rpms
 NET_OUTPUT_SHAPE = 3 # steering [-1, 1] throttle [-1, 1], up/downshift [-1, 1]
-LEARNING_RATE = 0.01
+LEARNING_RATE = 0.003
 BATCH_SIZE = 20
 TRAINING_EPOCHS = 1
 MODEL_METRICS = ["accuracy"]
-INTERPOLATION_FACTOR = 0.8 # scalar applied to rewards
+INTERPOLATION_FACTOR = 1 # scalar applied to rewards
 TRAINING_EPSILON = 0.125 # if random is less than epsilon, a random move is done
 
-MAX_GENERATION_TIME = 10 # in seconds, max lifetime of a generation before training
+MAX_GENERATION_TIME = 20 # in seconds, max lifetime of a generation before training
 NUM_GENERATIONS = 200 # maximum number of generations
