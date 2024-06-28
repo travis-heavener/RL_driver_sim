@@ -1,44 +1,18 @@
-from math import sin, pi
+import math
 import tensorflow as tf
+from numba import njit
 import numpy as np
+import pygame
+import pygame.gfxdraw
 from scipy.interpolate import splprep, splev
 import types
 
 import consts
 
+@njit
 def log(*args): print("Note:", *args)
+@njit
 def warn(*args): print("Warn:", *args)
-
-# #############################################
-#
-#               Point class
-#
-# #############################################
-
-class Point:
-    def __init__(self, x: float, y: float):
-        self.x, self.y = x, y
-    
-    def __str__(self):
-        return f"({self.x}, {self.y})"
-    
-    def astuple(self):
-        return (self.x, self.y)
-
-    def __add__(self, p2):
-        return Point(self.x + p2.x, self.y + p2.y)
-    
-    def __sub__(self, p2):
-        return Point(self.x - p2.x, self.y - p2.y)
-    
-    def __mul__(self, s):
-        return Point(self.x * s, self.y * s)
-    
-    def __rmul__(self, s):
-        return Point(self.x * s, self.y * s)
-    
-    def cross2d(self, p2):
-        return self.x * p2.y - self.y * p2.x
 
 # #############################################
 #
@@ -50,15 +24,18 @@ class Point:
 __HALF_MAX_TORQUE = 0.5 * consts.MAX_TORQUE
 __VEHICLE_MASS = consts.VEHICLE_WEIGHT / 2.205 # in kg
 
+@njit
 def getEngineTQ(rpms: int, throttle: float) -> float:
     if rpms < consts.IDLE_RPMS:
         return 0
-    return throttle * __HALF_MAX_TORQUE * (sin((rpms / 3000) - 0.2) + 1)
+    return throttle * __HALF_MAX_TORQUE * (math.sin((rpms / 3000) - 0.2) + 1)
 
+@njit
 def getEngineHP(rpms: int, throttle: float) -> float:
     return getEngineTQ(rpms, throttle) * rpms / 5252
 
 # calculate the resulting net force the vehicle experiences at the given moment
+@njit
 def calcVehicleForce(gear: int, rpms: int, throttle: float) -> float:
     # handle speeding up and braking
     speed = getSpeedFromRPMs(gear, max(consts.IDLE_RPMS, rpms))
@@ -77,34 +54,117 @@ def calcVehicleForce(gear: int, rpms: int, throttle: float) -> float:
     return f_engine + f_drag + f_rolling + f_ebrake
 
 # calculate speed of car at a given moment
+@njit
 def getSpeedFromRPMs(gear: int, rpms: int) -> float:
     wheel_rpms = rpms / (consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1])
-    circumference = consts.ROLLING_DIAMETER_M * pi # meters
+    circumference = consts.ROLLING_DIAMETER_M * math.pi # meters
     return wheel_rpms * circumference / 60 # from meters/minute to meters/second
 
 # return the necessary RPMs for the given speed in the given gear
+@njit
 def getRPMsFromSpeed(speed: float, gear: int) -> float:
-    circumference = consts.ROLLING_DIAMETER_M * pi # meters
+    circumference = consts.ROLLING_DIAMETER_M * math.pi # meters
     ratio = consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1]
     return 60 * speed * ratio / circumference
 
 # convert mph to m/s
+@njit
 def mph2ms(speed: float) -> float:
     return speed / 2.237
 
 # convert m/s to mph
+@njit
 def ms2mph(speed: float) -> float:
     return speed * 2.237
 
 # convert lbs to kg
+@njit
 def lbs2kg(lbs: float) -> float:
     return lbs / 2.205
+
+# raycasting
+
+# returns all the segments that make up the walls of the track and driver bboxes
+def get_obstacle_segs(track_poly: np.ndarray, bboxes: list[np.ndarray]) -> np.ndarray:
+    segs = []
+
+    # track segments
+    len_track_poly = len(track_poly)
+    for i in range(len_track_poly):
+        # skip implicit segments (that connect outer to inner walls & vice versa)
+        # middle 2 pts connect outer to inner, outer 2 pts connect inner to outer
+        if i == len_track_poly-1 or i+1 == len_track_poly // 2: continue
+
+        segs.append( np.array([track_poly[i], track_poly[(i+1) % len_track_poly]]) )
+
+    # driver bbox segments
+    for bbox in bboxes:
+        len_bbox = len(bbox)
+        for i in range(len_bbox):
+            segs.append( np.array([bbox[i], bbox[(i+1) % len_bbox]]) )
+
+    return np.array(segs)
+
+#
+# searches for the nearest obstacle from the given angle out
+# returns the distance to the nearest obstacle
+#
+@njit
+def emit_ray(obstacle_segs: np.ndarray, ray: np.ndarray, return_on_hit=False) -> float:
+    closest_obstacle = consts.SENSOR_NOT_FOUND
+
+    # check for intersections with obstacle hitbox segments
+    for seg in obstacle_segs:
+        # cast ray
+        if do_segments_intersect(ray, seg):
+            if return_on_hit: # return a value less than SENSOR_MAX_RANGE
+                return -1
+        
+            intersection = get_segment_intersection(ray, seg)
+            if intersection is None: continue
+
+            components = intersection - ray[0]
+            dist_m = math.hypot(components[0], components[1]) / consts.PX_METER_RATIO
+
+            if dist_m < closest_obstacle: closest_obstacle = dist_m
+
+    return closest_obstacle
 
 # #############################################
 #
 #               track tools
 #
 # #############################################
+
+# draw antialiased lines (ref: https://stackoverflow.com/a/30599392)
+def draw_aa_lines(window, lines, color, width):
+    num_lines = len(lines)
+    for i in range(num_lines):
+        p0 = lines[i]
+        p1 = lines[(i+1) % num_lines]
+        draw_aa_line(window, np.array((p0, p1)), color, width)
+
+def draw_aa_line(window, line, color, width):
+    p0, p1 = line
+
+    # generate polygon from line
+    mid = (p0 + p1) / 2
+    length = math.hypot(*(p1 - p0))
+    theta = math.atan2(p0[1] - p1[1], p0[0] - p1[0])
+    cos, sin = math.cos(theta), math.sin(theta)
+    len_cos, len_sin = length * cos / 2, length * sin / 2
+    wid_cos, wid_sin = width * cos / 2, width * sin / 2
+
+    # calculate vertices
+    top_left  = (mid[0] + len_cos - wid_sin, mid[1] + wid_cos + len_sin)
+    top_right = (mid[0] - len_cos - wid_sin, mid[1] + wid_cos - len_sin)
+    bot_left  = (mid[0] + len_cos + wid_sin, mid[1] - wid_cos + len_sin)
+    bot_right = (mid[0] - len_cos + wid_sin, mid[1] - wid_cos - len_sin)
+    pts = (top_left, top_right, bot_right, bot_left)
+
+    # draw and fill
+    pygame.gfxdraw.aapolygon(window, pts, color)
+    pygame.gfxdraw.filled_polygon(window, pts, color)
 
 # create inner & outer track borders from central spline curve
 def __gen_offset_line(tck, u_final, line, distance):
@@ -136,16 +196,17 @@ def gen_inner_spline(tck, outer_spline):
 #
 # check if a line segment intersects with another segment
 #
+@njit
 def __check_orientation(A, B, C):
-    return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x)
+    return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
 
-def do_segments_intersect(s1, s2) -> bool:
+@njit
+def do_segments_intersect(s1: np.ndarray, s2: np.ndarray) -> bool:
     # ref #1: https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect/
     # ref #2: https://stackoverflow.com/a/9997374
     # check orientation of lines against each other
-    p1, q1, p2, q2 = *s1, *s2
-    A, B = Point(*p1), Point(*q1)
-    C, D = Point(*p2), Point(*q2)
+    A, B = s1[0], s1[1]
+    C, D = s2[0], s2[1]
 
     return (__check_orientation(A, C, D) != __check_orientation(B, C, D) and
             __check_orientation(A, B, C) != __check_orientation(A, B, D))
@@ -153,23 +214,26 @@ def do_segments_intersect(s1, s2) -> bool:
 # return the intersection point of two segments
 # ref: https://stackoverflow.com/a/565282
 # all those multi lectures and linear algebra lessons to look this up... smh
-def get_segment_intersection(s1, s2) -> np.ndarray:
-    p1, q1, p2, q2 = *s1, *s2
-    A, B = Point(*p1), Point(*q1)
-    C, D = Point(*p2), Point(*q2)
-    
+@njit
+def get_segment_intersection(s1: np.ndarray, s2: np.ndarray) -> np.ndarray:
+    A, B = s1[0], s1[1]
+    C, D = s2[0], s2[1]
+
     # r & s are the vectors aligned with the direction of each segment
     # (A, B) is (A, A+r) -> B=A+r
     r, s = B-A, D-C
 
     # segments intersect at A + tr = B + us
-    r_cross_x = r.cross2d(s)
+    r_cross_x = cross2d(r, s)
     if r_cross_x == 0: return None # no intersection, prevent div by 0
 
-    t = (C - A).cross2d(s) / r_cross_x
+    t = cross2d(C-A, s) / r_cross_x
 
-    return np.array( (A + t*r).astuple() )
+    return (A + t*r)
 
+@njit
+def cross2d(A: np.ndarray, B: np.ndarray) -> float:
+    return A[0] * B[1] - A[1] * B[0]
 
 # #############################################
 #
@@ -207,5 +271,6 @@ def get_reward_avg(rewards: any) -> float:
     else:
         return weighted_total / weights_sum
 
+@njit
 def sign(n: float) -> float:
     return 1 if n > 0 else -1 if n < 0 else 0

@@ -4,6 +4,7 @@
 WIDTH  = 1600
 HEIGHT =  900
 FPS = 60
+FPS_DISPLAY_RATE = 0.2 # in seconds, how often to refresh the frame rate display
 PX_METER_RATIO = 1 # DEFAULT, updated by scaling; pixels per meter
 def set_px_ratio(ratio: float) -> None:
     global PX_METER_RATIO
@@ -14,6 +15,10 @@ TRACK_COLOR_RGB     = ( 96,  96,  96)
 BARRIER_COLOR_RGB   = ( 15,  15,  15)
 FINISH_COLOR_RGB    = (241, 241, 241)
 DRIVELINE_COLOR_RGB = (255, 255,   0)
+TEXT_COLOR_RGB      = (  5,   5,   5)
+FONT_SIZE = HEIGHT // 40
+
+USE_ANTIALIAS = True
 
 #
 # vehicle config
@@ -42,7 +47,7 @@ LOWER_SHIFT_POINTS = (2000, 2700, 3400, 4100, 4650, 5050) # lowest RPMs for 2-7t
 # sensors config
 SHIFT_CONF_THRESH = 0.9 # how confident the model must be to shift up or down
 SENSOR_RANGE_M = 200 # how far the sensors reach around the vehicle, in meters
-SENSOR_ANGLES = (-45, -30, -23 -15, -10, -5, -3, -1, 0, 1, 3, 5, 10, 15, 23, 30, 45)
+SENSOR_ANGLES = (-45, -30, -23, -15, -10, -5, -3, -1, 0, 1, 3, 5, 10, 15, 23, 30, 45)
 SENSOR_NOT_FOUND = 1e6 # absurdly large number to indicate the sensor couldn't find anything nearby
 
 #

@@ -4,12 +4,12 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
 
 from collections import OrderedDict
 import math
-from matplotlib import pyplot as plt
+from numba import jit, njit
 import numpy as np
-import tensorflow as tf
 from tensorflow import keras
 from keras import layers, models, losses, optimizers, initializers
 import pygame
+from random import random
 from time import time
 
 import consts
@@ -163,8 +163,8 @@ class Driver:
 
         # run model
         output_data = None
-        if np.random.random() <= consts.TRAINING_EPSILON:
-            output_data = [(2 * np.random.random() - 1) for i in range(consts.NET_OUTPUT_SHAPE)]
+        if random() <= consts.TRAINING_EPSILON:
+            output_data = [(2 * random() - 1) for i in range(consts.NET_OUTPUT_SHAPE)]
         else:
             output_data = self.model(input_data, training=False)[0]
 
@@ -202,9 +202,9 @@ class Driver:
             self.direction += self.steering * consts.STEERING_ANGLE * dt
 
         speed_scaled = self.speed * dt * consts.PX_METER_RATIO
-        angle_rad = np.deg2rad(self.direction)
-        self.x += np.cos(angle_rad) * speed_scaled
-        self.y -= np.sin(angle_rad) * speed_scaled
+        angle_rad = math.radians(self.direction)
+        self.x += math.cos(angle_rad) * speed_scaled
+        self.y -= math.sin(angle_rad) * speed_scaled
 
         # update rpms if accelerating from stop or already moving
         if not self.is_parked():
@@ -277,60 +277,26 @@ class Driver:
     # returns a list of (angle, distance) pairs for each direction
     #
     def _scan_sensors(self, track_poly: np.ndarray, drivers: list[any]) -> tuple[tuple[float, float]]:
-        bboxes = [driver.bbox() for driver in drivers if driver.car_num != self.car_num and not driver.has_crashed]
+        bboxes = np.array([
+            driver.bbox() for driver in drivers if driver.car_num != self.car_num and not driver.has_crashed
+        ])
+
+        # extract all segments for intersection checking
+        obstacle_segs = tools.get_obstacle_segs(track_poly, bboxes)
 
         sensor_data = []
         max_range = consts.SENSOR_RANGE_M * consts.PX_METER_RATIO
-        pos = np.array((self.x, self.y))
+        pos = np.array([self.x, self.y])
         for angle in consts.SENSOR_ANGLES:
             # calculate end point
-            angle_rad = np.deg2rad(self.direction + angle)
-            u = np.array((np.cos(angle_rad), np.sin(angle_rad))) # unit vector
-            ray = (pos, pos + u * max_range)
+            angle_rad = math.radians(self.direction + angle)
+            u = np.array([math.cos(angle_rad), math.sin(angle_rad)]) # unit vector
+            ray = np.array([pos, pos + u * max_range])
 
-            sensor_data.append( (angle, self._emit_ray(track_poly, bboxes, ray)) )
+            # start concurrent process
+            sensor_data.append( (angle, tools.emit_ray(obstacle_segs, ray)) )
 
         return sensor_data
-
-    #
-    # searches for the nearest obstacle from the given angle out
-    # returns the distance to the nearest obstacle
-    #
-    def _emit_ray(self, track_poly: np.ndarray, bboxes: list[np.ndarray], ray: tuple[float, float]) -> float:
-        closest_obstacle = consts.SENSOR_NOT_FOUND
-
-        # 1. check for intersections with the track
-        len_track_poly = len(track_poly)
-        for i in range(len_track_poly):
-            # skip implicit segments (that connect outer to inner walls & vice versa)
-            # middle 2 pts connect outer to inner, outer 2 pts connect inner to outer
-            if i == len_track_poly-1 or i+1 == len_track_poly // 2: continue
-
-            # cast ray
-            seg = (track_poly[i], track_poly[(i+1) % len_track_poly])
-            if tools.do_segments_intersect(ray, seg):
-                intersection = tools.get_segment_intersection(ray, seg)
-                if intersection is None: continue
-
-                dist_m = np.hypot(*(intersection - ray[0])) / consts.PX_METER_RATIO
-                if dist_m < closest_obstacle:
-                    closest_obstacle = dist_m
-
-        # 2. check for intersections with vehicles
-        for bbox in bboxes:
-            len_bbox = len(bbox)
-            for i in range(len_bbox):
-                # cast ray
-                seg = (bbox[i], bbox[(i+1) % len_bbox])
-                if tools.do_segments_intersect(ray, seg):
-                    intersection = tools.get_segment_intersection(ray, seg)
-                    if intersection is None: continue
-
-                    dist_m = np.hypot(*(intersection - ray[0])) / consts.PX_METER_RATIO
-                    if dist_m < closest_obstacle:
-                        closest_obstacle = dist_m
-
-        return closest_obstacle
 
     #
     # Get the bounding box around the vehicle of its vertices
@@ -345,10 +311,10 @@ class Driver:
         ))
 
         # rotate bbox
-        theta = np.deg2rad(-self.direction)
+        theta = math.radians(-self.direction)
         rot_matrix = np.array((
-            (np.cos(theta), -np.sin(theta)),
-            (np.sin(theta), np.cos(theta))
+            (math.cos(theta), -math.sin(theta)),
+            (math.sin(theta), math.cos(theta))
         ))
 
         rotated_bbox = []
@@ -408,7 +374,7 @@ class Driver:
         """ UNUSED
         # check for sharp steering
         # literally just roll die to see whether or not the vehicle crashed
-        flip_thresh = np.random.random()
+        flip_thresh = random()
         probability = 0.5 * self.steering / consts.STEERING_ANGLE * (np.tanh(self.speed / 5 - 4) + 1)
         self.has_crashed = flip_thresh < probability
 
@@ -435,7 +401,7 @@ class Driver:
         front_gap_f = tools.avg(min(state_f[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if abs(a) <= 10)
         left_gap_f  = tools.avg(min(state_f[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a < -10)
         right_gap_f = tools.avg(min(state_f[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a > 10)
-
+        
         # from [-1, 1], the change in gap after the last move
         delta_front_gap = front_gap_f - front_gap_i
         delta_left_gap  = left_gap_f - left_gap_i
@@ -542,15 +508,20 @@ class Driver:
     # check for collisions with the track or players
     #
     def _collision_check(self, track_poly: np.ndarray, drivers: list[any]):
-        bboxes = [driver.bbox() for driver in drivers if driver.car_num != self.car_num and not driver.has_crashed]
+        bboxes = np.array([
+            driver.bbox() for driver in drivers if driver.car_num != self.car_num and not driver.has_crashed
+        ])
         self_bbox = self.bbox()
+
+        # extract all segments for intersection checking
+        obstacle_segs = tools.get_obstacle_segs(track_poly, bboxes)
 
         # for all edges of this bbox, treat as rays to passthru raycast method as shortcut
         # since the raycast method checks for intersections between line segments
         self_bbox_len = len(self_bbox)
         for i in range(self_bbox_len):
-            ray = (self_bbox[i], self_bbox[(i+1) % self_bbox_len])
-            dist = self._emit_ray(track_poly, bboxes, ray)
+            ray = np.array([self_bbox[i], self_bbox[(i+1) % self_bbox_len]])
+            dist = tools.emit_ray(obstacle_segs, ray, return_on_hit=True)
             if dist != consts.SENSOR_NOT_FOUND:
                 self.has_crashed = True
                 return

@@ -109,11 +109,18 @@ class Track:
             for i in range(0, num_pts, 2): # count by 2s
                 start_pt = self.driveline[i]
                 end_pt = self.driveline[(i+1) % num_pts]
-                pygame.draw.line(window, consts.DRIVELINE_COLOR_RGB, start_pt, end_pt, self.__BARRIER_PX // 2)
 
-        # render start line
-        pygame.draw.line(window, consts.FINISH_COLOR_RGB, *self.start_line, self.__START_PX)
+                if consts.USE_ANTIALIAS:
+                    tools.draw_aa_line(window, np.array((start_pt, end_pt)), consts.DRIVELINE_COLOR_RGB, self.__BARRIER_PX // 2)
+                else:
+                    pygame.draw.line(window, consts.DRIVELINE_COLOR_RGB, start_pt, end_pt, self.__BARRIER_PX // 2)
 
-        # render track walls onto frame
-        pygame.draw.lines(window, consts.BARRIER_COLOR_RGB, False, self.outer_wall, self.__BARRIER_PX)
-        pygame.draw.lines(window, consts.BARRIER_COLOR_RGB, False, self.inner_wall, self.__BARRIER_PX)
+        # render start line and track walls
+        if consts.USE_ANTIALIAS:
+            tools.draw_aa_line(window, self.start_line, consts.FINISH_COLOR_RGB, self.__START_PX)
+            tools.draw_aa_lines(window, self.inner_wall, consts.BARRIER_COLOR_RGB, self.__BARRIER_PX)
+            tools.draw_aa_lines(window, self.outer_wall, consts.BARRIER_COLOR_RGB, self.__BARRIER_PX)
+        else:
+            pygame.draw.line(window, consts.FINISH_COLOR_RGB, *self.start_line, self.__START_PX)
+            pygame.draw.lines(window, consts.BARRIER_COLOR_RGB, False, self.inner_wall, self.__BARRIER_PX)
+            pygame.draw.lines(window, consts.BARRIER_COLOR_RGB, False, self.outer_wall, self.__BARRIER_PX)

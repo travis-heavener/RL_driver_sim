@@ -1,5 +1,7 @@
 # hide pygame welcome message (thanks https://stackoverflow.com/a/55769463)
 import os
+
+import pygame.freetype
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 
 # fix Windows DPI scaling (thanks https://stackoverflow.com/a/32063729)
@@ -25,6 +27,7 @@ class SimContainer:
     # references to Pygame objects
     window: pygame.Surface = None
     clock = None
+    font: pygame.freetype.Font = None
 
     # reference to Track
     track: Track = None
@@ -39,6 +42,11 @@ class SimContainer:
         self.window = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.track = track
+
+        # load fonts
+        self.font_regular = pygame.freetype.Font("res/font_regular.ttf", consts.FONT_SIZE)
+        self.font_medium = pygame.freetype.Font("res/font_medium.ttf", consts.FONT_SIZE)
+        self.font_bold = pygame.freetype.Font("res/font_bold.ttf", consts.FONT_SIZE)
 
         pygame.display.set_caption("RLDS: Circuit Edition")
     
@@ -55,6 +63,7 @@ class SimContainer:
     def run(self) -> None:
         is_running = True
         last_trained_ts = time()
+        last_frame_rate = last_frame_rate_ts = 0
         generation_num = 1
 
         # game loop
@@ -72,7 +81,6 @@ class SimContainer:
 
                 for driver in self.drivers: # rate each driver's move
                     driver.evaluate(self.track.track_poly, self.drivers)
-            print(f"Draw time: {round(time() - start, 5)}s")
 
             # render frame
             self.window.fill(GRASS_COLOR_RGB) # wipe screen
@@ -80,6 +88,20 @@ class SimContainer:
 
             for driver in self.drivers: # render each driver
                 driver.draw(self.window, draw_bbox=False)
+
+            # display FPS
+            if time() - last_frame_rate_ts >= consts.FPS_DISPLAY_RATE:
+                last_frame_rate_ts = time()
+                frame_time_s = last_frame_rate_ts - start
+                last_frame_rate = min(round(1 / max(frame_time_s, 1e-5)), FPS) # prevent zero div
+                
+            text_surface, text_rect = self.font_medium.render(f"{last_frame_rate} FPS", consts.TEXT_COLOR_RGB)
+            self.window.blit(text_surface, (WIDTH - (HEIGHT // 100) - text_rect.width, HEIGHT // 100))
+
+            # display generation readout
+            text_surface, text_rect = self.font_medium.render(f"Generation #{generation_num}", consts.TEXT_COLOR_RGB)
+            self.window.blit(text_surface, (HEIGHT // 100, HEIGHT // 100))
+
 
             # display frame
             pygame.display.flip()
