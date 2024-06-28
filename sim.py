@@ -6,9 +6,9 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
-from time import time
 import numpy as np
 import pygame
+from time import time
 
 import consts
 from consts import WIDTH, HEIGHT, FPS, GRASS_COLOR_RGB
@@ -65,16 +65,18 @@ class SimContainer:
                     is_running = False
             
             # update drivers
+            start = time()
             if self.dt > 0:
                 for driver in self.drivers: # move drivers first
                     driver.move(self.track.track_poly, self.drivers, self.dt)
 
                 for driver in self.drivers: # rate each driver's move
                     driver.evaluate(self.track.track_poly, self.drivers)
+            print(f"Draw time: {round(time() - start, 5)}s")
 
             # render frame
             self.window.fill(GRASS_COLOR_RGB) # wipe screen
-            self.track.draw(self.window) # render track
+            self.track.draw(self.window, show_driveline=True) # render track
 
             for driver in self.drivers: # render each driver
                 driver.draw(self.window, draw_bbox=False)

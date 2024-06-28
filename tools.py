@@ -2,6 +2,7 @@ from math import sin, pi
 import tensorflow as tf
 import numpy as np
 from scipy.interpolate import splprep, splev
+import types
 
 import consts
 
@@ -10,7 +11,7 @@ def warn(*args): print("Warn:", *args)
 
 # #############################################
 #
-# Point class
+#               Point class
 #
 # #############################################
 
@@ -84,8 +85,8 @@ def getSpeedFromRPMs(gear: int, rpms: int) -> float:
 # return the necessary RPMs for the given speed in the given gear
 def getRPMsFromSpeed(speed: float, gear: int) -> float:
     circumference = consts.ROLLING_DIAMETER_M * pi # meters
-    wheel_rpms = speed * 60 / circumference # from meters/second to meters/minute
-    return wheel_rpms * consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1]
+    ratio = consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1]
+    return 60 * speed * ratio / circumference
 
 # convert mph to m/s
 def mph2ms(speed: float) -> float:
@@ -178,3 +179,33 @@ def get_segment_intersection(s1, s2) -> np.ndarray:
 
 def scaled_tanh(inputs):
     return tf.keras.activations.tanh(inputs * 0.25)
+
+# #############################################
+#
+#               misc. tools
+#
+# #############################################
+
+def avg(data: any) -> float:
+    if type(data) is types.GeneratorType: # explode generator to list (~2x faster from testing than np.fromiter)
+        data = list(data)
+
+    if type(data) is np.ndarray: # faster for numpy arrays
+        return np.sum(data) / data.shape[0]
+    else: # tuples, lists, etc
+        return sum(data) / len(data)
+
+def get_reward_avg(rewards: any) -> float:
+    weighted_total, weights_sum = 0, 0
+
+    for reward in rewards:
+        weighted_total += reward.value * reward.weight
+        weights_sum += reward.weight
+
+    if weights_sum == 0:
+        return 0
+    else:
+        return weighted_total / weights_sum
+
+def sign(n: float) -> float:
+    return 1 if n > 0 else -1 if n < 0 else 0

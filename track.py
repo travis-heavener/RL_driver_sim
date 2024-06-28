@@ -24,6 +24,7 @@ class Track:
     inner_wall: np.ndarray
     outer_wall: np.ndarray
     track_poly: np.ndarray
+    driveline: np.ndarray
 
     def __init__(self, track_src: str):
         MAX_WIDTH = consts.TRACK_BOUNDS[1][0] - consts.TRACK_BOUNDS[0][0]
@@ -67,7 +68,7 @@ class Track:
             consts.TRACK_BOUNDS[0][0] + MAX_WIDTH / 2,
             consts.TRACK_BOUNDS[0][1] + MAX_HEIGHT / 2
         )
-        scale_factor = min( (MAX_WIDTH, MAX_HEIGHT) / np.ptp(outer_wall, axis=0) )
+        scale_factor = float(min( (MAX_WIDTH, MAX_HEIGHT) / np.ptp(outer_wall, axis=0) ))
 
         # update pixels per meter ratio
         consts.set_px_ratio(scale_factor)
@@ -91,9 +92,24 @@ class Track:
         self.__START_PX = round(consts.START_WIDTH_M * consts.PX_METER_RATIO)
         self.__BARRIER_PX = round(consts.BARRIER_WIDTH_M * consts.PX_METER_RATIO)
 
-    def draw(self, window: pygame.Surface) -> None:
+        # create driveline from wall midpoints
+        driveline_pts = []
+        for i in range(len(self.outer_wall)):
+            driveline_pts.append((self.outer_wall[i] + self.inner_wall[i]) / 2)
+
+        self.driveline = np.array(driveline_pts)
+
+    def draw(self, window: pygame.Surface, show_driveline=False) -> None:
         # render track itself
         pygame.draw.polygon(window, consts.TRACK_COLOR_RGB, self.track_poly)
+
+        # render driveline
+        if show_driveline:
+            num_pts = len(self.driveline)
+            for i in range(0, num_pts, 2): # count by 2s
+                start_pt = self.driveline[i]
+                end_pt = self.driveline[(i+1) % num_pts]
+                pygame.draw.line(window, consts.DRIVELINE_COLOR_RGB, start_pt, end_pt, self.__BARRIER_PX // 2)
 
         # render start line
         pygame.draw.line(window, consts.FINISH_COLOR_RGB, *self.start_line, self.__START_PX)

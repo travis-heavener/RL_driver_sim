@@ -1,5 +1,3 @@
-from math import sin, pi
-
 #
 # window config
 #
@@ -11,10 +9,11 @@ def set_px_ratio(ratio: float) -> None:
     global PX_METER_RATIO
     PX_METER_RATIO = ratio
 
-GRASS_COLOR_RGB   = ( 18, 118,  46)
-TRACK_COLOR_RGB   = ( 96,  96,  96)
-BARRIER_COLOR_RGB = ( 15,  15,  15)
-FINISH_COLOR_RGB  = (241, 241, 241)
+GRASS_COLOR_RGB     = ( 18, 118,  46)
+TRACK_COLOR_RGB     = ( 96,  96,  96)
+BARRIER_COLOR_RGB   = ( 15,  15,  15)
+FINISH_COLOR_RGB    = (241, 241, 241)
+DRIVELINE_COLOR_RGB = (255, 255,   0)
 
 #
 # vehicle config
@@ -38,11 +37,12 @@ MAX_TORQUE = 375 # in lb-ft
 IDLE_RPMS, REDLINE_RPMS, MAX_RPMS = 750, 7000, 8000
 FINAL_DRIVE = 4.43
 GEAR_RATIOS = (3.50, 2.73, 2.13, 1.66, 1.30, 1.01, 0.79)
+LOWER_SHIFT_POINTS = (2000, 2700, 3400, 4100, 4650, 5050) # lowest RPMs for 2-7th gears
 
 # sensors config
 SHIFT_CONF_THRESH = 0.9 # how confident the model must be to shift up or down
 SENSOR_RANGE_M = 200 # how far the sensors reach around the vehicle, in meters
-SENSOR_ANGLES = (0, 30, 45, 60, 90, -30, -45, -60, -90)
+SENSOR_ANGLES = (-45, -30, -23 -15, -10, -5, -3, -1, 0, 1, 3, 5, 10, 15, 23, 30, 45)
 SENSOR_NOT_FOUND = 1e6 # absurdly large number to indicate the sensor couldn't find anything nearby
 
 #
@@ -70,5 +70,5 @@ MODEL_METRICS = ["accuracy"]
 INTERPOLATION_FACTOR = 0.8 # scalar applied to rewards
 TRAINING_EPSILON = 0.125 # if random is less than epsilon, a random move is done
 
-MAX_GENERATION_TIME = 30 # in seconds, max lifetime of a generation before training
+MAX_GENERATION_TIME = 10 # in seconds, max lifetime of a generation before training
 NUM_GENERATIONS = 200 # maximum number of generations
