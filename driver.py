@@ -6,8 +6,7 @@ from collections import OrderedDict
 import math
 from numba import jit, njit
 import numpy as np
-from tensorflow import keras
-from keras import layers, models, losses, optimizers, initializers
+import tensorflow as tf
 import pygame
 from random import random
 from time import time
@@ -44,28 +43,15 @@ MOOD_YOLO     = DriverMood(accel=1.00, braking=0.90, speed=1.00, margin=0.10, re
 MOOD_NERVOUS  = DriverMood(accel=0.50, braking=0.40, speed=0.70, margin=0.85, rev_bias=0.35)
 MOOD_ECO      = DriverMood(accel=0.35, braking=0.70, speed=0.65, margin=0.50, rev_bias=0.30)
 
-#
-# Used to aid in the calculation of rewards from driver states
-#
-class Reward:
-    def __init__(self, value: float, weight: float):
-        self.value = value # from -1 to 1
-        self.weight = weight # >= 0
-
-# preset reward weights
-REWARD_LOW = 0.33
-REWARD_MEDIUM = 0.67
-REWARD_HIGH = 1
-
 # #############################################
 #
 # Driver constructor for new, blank-slate driver models
 #
 # #############################################
 _NEXT_DRIVER_ID = 1
-THROTTLE, STEERING, SHIFTING = 0, 1, 2
+ACCEL, BRAKE, LEFT, RIGHT, DOWNSHIFT, UPSHIFT = range(6)
 class Driver:
-    model: models.Sequential = None
+    model: tf.keras.models.Sequential = None
     mood: DriverMood = MOOD_NORMAL
     img: pygame.Surface = None
     car_num: int
@@ -77,8 +63,8 @@ class Driver:
     speed, accel = 0.0, 0.0 # linear, scalar in m/s and m/s/s
 
     # engine & powertrain
-    throttle: float = 0
-    steering: float = 0
+    throttle: float = 0 # accel - brake
+    steering: float = 0 # right - left
     direction: float = 0 # degrees
     gear: int = 1
     rpms: float = consts.IDLE_RPMS
@@ -93,8 +79,7 @@ class Driver:
         self.car_num = _NEXT_DRIVER_ID
         _NEXT_DRIVER_ID += 1
 
-        # assign driver's mood
-        self.mood = mood or self.mood
+        self.mood = mood or self.mood # assign driver's mood
 
         # copy image
         self.width = math.ceil(consts.VEHICLE_WIDTH_M * consts.PX_METER_RATIO)
@@ -102,30 +87,19 @@ class Driver:
         self.img = pygame.transform.scale( DRIVER_IMG, (self.length, self.width) )
 
         # create new blank-slate network
-        in_shape = (consts.NET_INPUT_SHAPE,)
-        intlzr = lambda: initializers.RandomNormal(stddev=0.01)
-        self.model = models.Sequential()
-        self.model.add(layers.Dense(24, input_shape=in_shape, kernel_initializer=intlzr(), activation="linear"))
-        self.model.add(layers.Dense(consts.NET_OUTPUT_SHAPE, kernel_initializer=intlzr(), activation=tools.scaled_tanh))
-
-        self.model.compile(loss=losses.MeanSquaredError(),
-                           metrics=consts.MODEL_METRICS,
-                           optimizer=optimizers.Adam(learning_rate=consts.LEARNING_RATE))
+        self.model = tools.create_model()
     
     def reset(self):
-        self.x = self._start_x
-        self.y = self._start_y
-        self.speed = 0
-        self.accel = 0
-        self.direction = 0
+        self.x, self.y = self._start_x, self._start_y
+        self.speed = self.accel = self.direction = 0
         
-        self.throttle = 0
-        self.steering = 0
+        self.throttle = self.steering = 0
+        self.gear, self.rpms = 1, consts.IDLE_RPMS
 
-        self.gear = 1; self.rpms = consts.IDLE_RPMS
         self.has_crashed = False
         self.parking_start = -1
-        self.saved_state = None
+        self.saved_state["state"].clear()
+        self.saved_state["output"] = None
         self.memory.clear()
 
     def set_start_pos(self, x: float, y: float) -> None:
@@ -135,7 +109,7 @@ class Driver:
     #
     # draws the driver on the window
     #
-    def draw(self, window: pygame.Surface, draw_bbox: bool=False) -> None:
+    def draw(self, window: pygame.Surface, draw_bbox: bool=False, draw_sensor_paths=False) -> None:
         if self.has_crashed: return
 
         img = pygame.transform.rotate(self.img, self.direction)
@@ -145,8 +119,24 @@ class Driver:
 
         window.blit(img, pos)
 
+        # draw bbox
         if draw_bbox:
-            pygame.draw.lines(window, (0,0,255), False, self.bbox(closed=True), 2)
+            pygame.draw.lines(window, consts.DEBUG_COLOR_RGB, False, self.bbox(closed=True), 2)
+        
+        # draw sensor object recognition paths
+        if draw_sensor_paths and self.saved_state is not None:
+            pos = np.array([self.x, self.y])
+            for angle in consts.SENSOR_ANGLES:
+                if angle not in self.saved_state["state"].keys() or self.saved_state["state"][angle] == consts.SENSOR_NOT_FOUND:
+                    continue
+
+                # calculate end point
+                angle_rad = math.radians(self.direction + angle)
+                u = np.array([math.cos(angle_rad), -math.sin(angle_rad)]) # unit vector
+                offset = u * math.cos(math.radians(angle)) * consts.VEHICLE_LENGTH_M * consts.PX_METER_RATIO / 2
+                dist = self.saved_state["state"][angle] * consts.PX_METER_RATIO
+                ray = np.array([pos + offset, pos + u * dist + offset])
+                pygame.draw.line(window, consts.DEBUG_COLOR_RGB, *ray, 2)
 
     #
     # enables the driver to make a decision, evaluate it, and update the model if they haven't crashed
@@ -154,30 +144,22 @@ class Driver:
     def move(self, track_poly: np.ndarray, drivers: list[any], dt: float) -> None:
         if self.has_crashed: return
 
-        # record state (if not saved from last evaluation--doesn't change)
-        if self.saved_state is None:
-            self.record_state(track_poly, drivers)
-        
-        # prepare data for model
-        input_data = self._format_input_data(self.saved_state["state"])
+        self.record_state(track_poly, drivers) # record state
+        input_data = self._format_input_data(self.saved_state["state"]) # prepare data for model
 
         # run model
         output_data = None
         if random() <= consts.TRAINING_EPSILON:
-            output_data = [(2 * random() - 1) for i in range(consts.NET_OUTPUT_SHAPE)]
+            output_data = [random() for i in range(consts.NET_OUTPUT_SHAPE)]
         else:
             output_data = self.model(input_data, training=False)[0]
 
         # update telemetry
-        throttle = round( float(output_data[THROTTLE]), 2 )
-        steering = round( float(output_data[STEERING]), 2 )
-        shift_confidence = round( float(output_data[SHIFTING]), 5 )
-
-        if math.isnan(throttle) or math.isnan(steering) or math.isnan(shift_confidence):
-            tools.warn("Model returned a nan value, aborting move...:", output_data)
-            return
-        
-        self.throttle, self.steering = throttle, steering
+        normalize = lambda n: round( float(n), 2 )
+        self.throttle = 2 * normalize(output_data[ACCEL] - output_data[BRAKE])
+        self.steering = 2 * normalize(output_data[RIGHT] - output_data[LEFT])
+        downshift_conf = normalize(output_data[DOWNSHIFT])
+        upshift_conf = normalize(output_data[UPSHIFT])
 
         # update physical properties
         net_force = tools.calcVehicleForce(self.gear, self.rpms, self.throttle)
@@ -188,7 +170,7 @@ class Driver:
             self.rpms = consts.IDLE_RPMS
 
             if self.throttle >= 0: # if stopped and not braking, start moving
-                self.speed = tools.getSpeedFromRPMs(self.gear, self.rpms)
+                self.speed = tools.rpms_to_speed(self.gear, self.rpms)
             elif self.parking_start == -1:
                 self.parking_start = time()
 
@@ -197,28 +179,30 @@ class Driver:
         self.speed += self.accel * dt
         self.speed = max(0, min(self.speed, consts.MAX_SPEED)) # govern speed
 
-        # allow steering if not parked
+        # handle parking status
         if not self.is_parked():
-            # -1 is left, +1 is right
-            self.direction -= self.steering * consts.STEERING_ANGLE * dt
+            # allow steering if not parked
+            self.direction -= self.steering * consts.STEERING_ANGLE * dt # -1 is left, +1 is right
+
+            # update rpms if accelerating from stop or already moving
+            self.parking_start = -1
+            self.rpms = max(consts.IDLE_RPMS, tools.speed_to_rpms(self.speed, self.gear))
+        else:
+            self.accel = 0.0
 
         speed_scaled = self.speed * dt * consts.PX_METER_RATIO
         angle_rad = math.radians(self.direction)
         self.x += math.cos(angle_rad) * speed_scaled
         self.y -= math.sin(angle_rad) * speed_scaled
 
-        # update rpms if accelerating from stop or already moving
-        if not self.is_parked():
-            self.parking_start = -1
-            self.rpms = max(consts.IDLE_RPMS, tools.getRPMsFromSpeed(self.speed, self.gear))
-        else:
-            self.accel = 0.0
-
         # shift gears last to make calculations easier
-        if shift_confidence > consts.SHIFT_CONF_THRESH and self.gear < len(consts.GEAR_RATIOS): # upshift
-            self.gear += 1
-        elif shift_confidence < -consts.SHIFT_CONF_THRESH and self.gear > 1: # downshift
-            self.gear -= 1
+        is_downshifting = downshift_conf > consts.SHIFT_CONF_THRESH
+        is_upshifting = upshift_conf > consts.SHIFT_CONF_THRESH
+
+        if is_upshifting and not is_downshifting and self.gear < len(consts.GEAR_RATIOS):
+            self.gear += 1 # upshift
+        elif is_downshifting and not is_upshifting and self.gear > 1:
+            self.gear -= 1 # downshift
 
         # record state's output
         self.saved_state["output"] = output_data
@@ -241,6 +225,10 @@ class Driver:
         if self.saved_state is None:
             self.saved_state = {"state": OrderedDict(), "output": None}
         
+        # reset state
+        self.saved_state["state"].clear()
+        self.saved_state["output"] = None
+        
         # get sensor data
         sensor_data = self._scan_sensors(track_poly, drivers)
         for data in sensor_data:
@@ -250,6 +238,7 @@ class Driver:
         self.saved_state["state"]["speed"] = self.speed
         self.saved_state["state"]["gear"] = self.gear
         self.saved_state["state"]["rpms"] = self.rpms
+        self.saved_state["state"]["horsepower"] = tools.get_engine_HP(self.rpms, self.throttle)
     
     #
     # used to transform the current state to training data for the model
@@ -265,9 +254,6 @@ class Driver:
         reward = self._get_reward(track_poly, drivers)
         input_data = self._format_input_data(self.saved_state["state"])
         self.memory.append({"input": input_data, "output": self.saved_state["output"], "reward": reward})
-
-        # reset state
-        self.saved_state = None
 
     #
     # returns True if parked
@@ -293,10 +279,10 @@ class Driver:
         for angle in consts.SENSOR_ANGLES:
             # calculate end point
             angle_rad = math.radians(self.direction + angle)
-            u = np.array([math.cos(angle_rad), math.sin(angle_rad)]) # unit vector
-            ray = np.array([pos, pos + u * max_range])
+            u = np.array([math.cos(angle_rad), -math.sin(angle_rad)]) # unit vector
+            offset = u * math.cos(math.radians(angle)) * consts.VEHICLE_LENGTH_M * consts.PX_METER_RATIO / 2
+            ray = np.array([pos + offset, pos + u * max_range + offset])
 
-            # start concurrent process
             sensor_data.append( (angle, tools.emit_ray(obstacle_segs, ray)) )
 
         return sensor_data
@@ -342,18 +328,30 @@ class Driver:
         return (lower, upper)
 
     #
-    # Calculate the driver's reward from their current position based on their mood
-    # Note:
-    #     While the network's outputs may be ranged from [-1, 1] indicating various things,
-    #     these rewards do NOT indicate the same ideas. The values in this function indicate
-    #     a rating of bad (-1) to good (+1) for the given output.
-    #     
-    #     Ex. -0.75 steering means to turn left from the model;
-    #         here, it means that the move was 75% unfavorable.
+    # Calculate the driver's reward from their current position based on their mood.
+    # The rewards' values correspond to what the model's output values should have been [0, 1].
     #
     def _get_reward(self, track_poly: np.ndarray, drivers: list[any]) -> list[float]:
-        rewards: list[list[Reward]] = [ [], [], [] ]
+        rewards = [ 0.5 for i in range(consts.NET_OUTPUT_SHAPE) ]
         SENSOR_RANGE = consts.SENSOR_RANGE_M
+
+        ######### get previous state & relevant metrics #########
+        state = self.saved_state["state"]
+
+        # avg distance from all sensors, either front, left, or right groupings
+        # from [0, 1], 0 being no gap and 1 being massive gap
+        front_gap = tools.avg(min(state[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if abs(a) <= 10)
+        left_gap  = tools.avg(min(state[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a < -10)
+        right_gap = tools.avg(min(state[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a > 10)
+        
+        # scale the front gap by the following margin
+        front_gap *= 1 - self.mood.margin
+        left_gap = min(left_gap * SENSOR_RANGE / consts.TRACK_WIDTH_M / 2, 1)
+        right_gap = min(right_gap * SENSOR_RANGE / consts.TRACK_WIDTH_M / 2, 1)
+
+        # shifting changes
+        has_upshifted = self.gear > state["gear"]
+        has_downshifted = self.gear < state["gear"]
 
         ####################################
         ########## CRASH CHECKING ##########
@@ -363,16 +361,21 @@ class Driver:
         self._collision_check(track_poly, drivers)
 
         if self.has_crashed:
-            rewards[THROTTLE].append( Reward(-0.5, REWARD_HIGH) )
-            rewards[STEERING].append( Reward(-1, REWARD_HIGH) )
-            return [ tools.get_reward_avg(reward) for reward in rewards ]
+            # indicate to brake hard
+            rewards[ACCEL] = 0
+            rewards[BRAKE] = 1
+
+            # indicate to veer towards an opening
+            rewards[LEFT] = float(left_gap > right_gap)
+            rewards[RIGHT] = float(left_gap < right_gap)
+            return rewards
 
         # check for money shifts
         if self.rpms >= consts.MAX_RPMS:
+            # indicate to not shift
             self.has_crashed = True
-            rewards[THROTTLE].append( Reward(-0.5, REWARD_HIGH) )
-            rewards[SHIFTING].append( Reward(-1, REWARD_HIGH) )
-            return [ tools.get_reward_avg(reward) for reward in rewards ]
+            rewards[DOWNSHIFT] = 0
+            return rewards
 
         """ UNUSED
         # check for sharp steering
@@ -386,126 +389,29 @@ class Driver:
             return rewards
         """
 
-        ####################################
-        ########## STATE CHECKING ##########
-        ####################################
-
-        ######### get current state & relevant metrics #########
-        state_i = self.saved_state["state"]
-        self.record_state(track_poly, drivers)
-        state_f = self.saved_state["state"]
-
-        # avg distance from all sensors, either front, left, or right groupings
-        # from [0, 1], 0 being no gap and 1 being massive gap
-        front_gap_i = tools.avg(min(state_i[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if abs(a) <= 10)
-        left_gap_i  = tools.avg(min(state_i[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a < -10)
-        right_gap_i = tools.avg(min(state_i[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a > 10)
-        
-        front_gap_f = tools.avg(min(state_f[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if abs(a) <= 10)
-        left_gap_f  = tools.avg(min(state_f[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a < -10)
-        right_gap_f = tools.avg(min(state_f[a] / SENSOR_RANGE, 1) for a in consts.SENSOR_ANGLES if a > 10)
-        
-        # from [-1, 1], the change in gap after the last move
-        delta_front_gap = front_gap_f - front_gap_i
-        delta_left_gap  = left_gap_f - left_gap_i
-        delta_right_gap = right_gap_f - right_gap_i
-
-        # acceleration & shifting changes
-        # has_accelerated is NOT the same as is_accelerating
-        #   ex. the throttle can be open while slowing down
-        has_accelerated = state_f["speed"] > state_i["speed"]
-        is_accelerating = self.throttle > 0
-        is_braking = self.throttle < 0
-        has_upshifted = state_f["gear"] > state_i["gear"]
-        has_downshifted = state_f["gear"] < state_i["gear"]
-
         ######### reward evaluation for state changes #########
         
         # evaluate accelerating and slowing near gaps
-        does_gap_exist = front_gap_f >= self.mood.margin # based on driver mood
-        gap_reward = -1 if not has_accelerated else 1
-        
-        if does_gap_exist:
-            # reward for accelerating, punishment for slowing
-            gap_reward *= 1 + ((front_gap_f - 1) / max(1 - self.mood.margin, 0.01)) ** 3
-        else:
-            # reward for slowing, punishment for accelerating
-            gap_reward *= -1 + (front_gap_f / max(self.mood.margin, 0.01)) ** (1/3)
-        
-        rewards[THROTTLE].append( Reward(gap_reward, REWARD_HIGH) )
-
-        # handle if steering towards or away from side obstacles (steering)
-        # allow for 0.25 - 1.25 vehicle widths of space on either side, factoring in mood margin
-        front_gap_thresh = 3 * self.mood.margin * consts.VEHICLE_LENGTH_M / SENSOR_RANGE
-        side_gap_thresh = (self.mood.margin + 0.25) * consts.VEHICLE_WIDTH_M / SENSOR_RANGE
-        
-        def reward_side_gap(gap, delta):
-            if gap < side_gap_thresh and delta < 0: # indicate bad maneuver
-                scaled_gap = gap / side_gap_thresh
-                rewards[STEERING].append( Reward(-0.25 - 0.75 * scaled_gap, REWARD_HIGH) )
-
-                # indicate poor accelerating or good braking
-                rewards[THROTTLE].append( Reward((1 - scaled_gap) * -self.throttle, REWARD_HIGH) )
-            elif delta > 0: # reward for opening up space
-                rewards[STEERING].append( Reward(delta, REWARD_HIGH) )
+        rewards[ACCEL] = (1 - self.mood.accel) * (front_gap - 1) + 1 # accel w/ more gap
+        rewards[BRAKE] = 1 - front_gap * (1 + 4 * self.mood.braking) # brake w/ less gap
 
         # handle lateral spacing
-        reward_side_gap(left_gap_f, delta_left_gap)
-        reward_side_gap(right_gap_f, delta_right_gap)
+        rewards[LEFT] = 1 - left_gap
+        rewards[RIGHT] = 1 - right_gap
 
-        # handle if heading towards obstacles (throttle)
-        if front_gap_f < front_gap_thresh and delta_front_gap < 0: # not enough space in front
-            scaled_gap = front_gap_f / front_gap_thresh
-            rewards[THROTTLE].append( Reward((1 - scaled_gap) * -self.throttle, REWARD_HIGH) )
-        
         # reward and punish shift points
         shift_points = self.get_shift_points()
         scaled_rpms = self.rpms / consts.MAX_RPMS # rpms from 0 to 1
-        lower_pt = shift_points[0] / consts.MAX_RPMS if shift_points[0] is not None else None
+        lower_pt = (shift_points[0] if shift_points[0] is not None else consts.IDLE_RPMS) / consts.MAX_RPMS
         upper_pt = shift_points[1] / consts.MAX_RPMS
-        shift_reward = 0
 
-        if has_upshifted:
-            if scaled_rpms < lower_pt:
-                shift_reward = -(lower_pt - scaled_rpms) / lower_pt
-            else:
-                shift_reward = 1 - (scaled_rpms - lower_pt) / consts.MAX_RPMS
-        elif has_downshifted:
-            if scaled_rpms > upper_pt:
-                upper_rpms_thresh = consts.MAX_RPMS - upper_pt
-                shift_reward = -(scaled_rpms - upper_pt) / upper_rpms_thresh
-            else:
-                shift_reward = scaled_rpms / upper_pt
-
-        rewards[SHIFTING].append( Reward(shift_reward, REWARD_HIGH) )
-
-        ####################################
-        ######### STATELESS CHECKS #########
-        ####################################
-
-        # determine if the driver is oriented with the driveline
-        # TODO
-
-        # determine if the throttle is open (*trying* to accel)
-        if is_accelerating: # reward for higher rpms; punish for lower rpms
-            accel_rpms_reward = 1 - 2 * abs(scaled_rpms - self.mood.accel)
-            rewards[THROTTLE].append( Reward(accel_rpms_reward, REWARD_MEDIUM) )
-        elif is_braking: # reward for higher rpms
-            brake_rpms_reward = 1 - abs(scaled_rpms - self.mood.braking)
-            rewards[THROTTLE].append( Reward(brake_rpms_reward, REWARD_MEDIUM) )
-
-        # reward drivers for moving faster
-        if is_accelerating:
-            speed_reward = 2 * (self.speed / consts.MAX_SPEED) - 1
-            rewards[THROTTLE].append( Reward(speed_reward, REWARD_MEDIUM) )
-
-        # punish drivers for being parked
-        if self.parking_start != -1:
-            time_parked = time() - self.parking_start
-            rewards[THROTTLE].append( Reward(-time_parked, REWARD_HIGH) )
+        if has_upshifted: # reward based on how close the rpms are to the lower shift pt of the new gear
+            rewards[UPSHIFT] = tools.clamp(0, 1, 1 - abs(scaled_rpms - lower_pt) / lower_pt)
+        elif has_downshifted: # reward based on how close the rpms are to the upper shift pt of the new gear
+            rewards[DOWNSHIFT] = tools.clamp(0, 1, 1 - abs(scaled_rpms - upper_pt) / upper_pt)
 
         # average out rewards
-        return [ tools.get_reward_avg(reward) for reward in rewards ]
+        return rewards
 
     #
     # check for collisions with the track or players
@@ -548,21 +454,19 @@ class Driver:
         # calculate target data
         target_outputs = []
         
+        int_factor = consts.INTERPOLATION_FACTOR
         for output, reward in zip(outputs, rewards):
             target_outputs.append([])
             for i in range(consts.NET_OUTPUT_SHAPE):
-                offset = tools.sign(float(output[i])) * reward[i] * consts.INTERPOLATION_FACTOR
-                target_outputs[-1].append( output[i] + offset )
+                target_outputs[-1].append( output[i] * (1 - int_factor) + reward[i] * int_factor )
     
         # compile training data
-        training_x = np.array(inputs)[:,0,:].astype(np.float32)
-        training_y = np.array(target_outputs).astype(np.float32)
+        train_x = np.array(inputs)[:,0,:].astype(np.float32)
+        train_y = np.array(target_outputs).astype(np.float32)
         
         # train model
-        self.model.fit(training_x, training_y,
-                       batch_size=consts.BATCH_SIZE,
-                       epochs=consts.TRAINING_EPOCHS,
-                       verbose=1)
+        self.model.fit(train_x, train_y, batch_size=consts.BATCH_SIZE, verbose=1,
+                       validation_split=consts.VALIDATION_SPLIT, epochs=consts.TRAINING_EPOCHS)
 
         # wipe memory bank
         self.memory.clear()

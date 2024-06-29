@@ -75,7 +75,7 @@ class SimContainer:
             
             # update drivers
             start = time()
-            if self.dt > 0:
+            if self.dt > 0 and self.dt < 0.15: # prevent large frame skips from screwing up movement
                 for driver in self.drivers: # move drivers first
                     driver.move(self.track.track_poly, self.drivers, self.dt)
 
@@ -87,7 +87,7 @@ class SimContainer:
             self.track.draw(self.window, show_driveline=True) # render track
 
             for driver in self.drivers: # render each driver
-                driver.draw(self.window, draw_bbox=False)
+                driver.draw(self.window, draw_bbox=False, draw_sensor_paths=True)
 
             # display FPS
             if time() - last_frame_rate_ts >= consts.FPS_DISPLAY_RATE:
@@ -112,6 +112,7 @@ class SimContainer:
                     is_driver_remaining = True
                     break
             
+            has_trained = False
             if not is_driver_remaining or time() - last_trained_ts > consts.MAX_GENERATION_TIME:
                 tools.log(f"Generation #{generation_num} ended.")
                 generation_num += 1
@@ -121,6 +122,7 @@ class SimContainer:
                     driver.train()
                     driver.reset()
 
+                has_trained = True
                 last_trained_ts = time() # update last training timestamp
                 tools.log("Training complete.")
 
@@ -128,7 +130,10 @@ class SimContainer:
                 is_running = False
 
             # extract frame time gap
-            self.dt = self.clock.tick(FPS) / 1e3
+            if has_trained: # ignore frametime if training (causes REALLY large dt values and can jump the track)
+                self.dt = 0
+            else:
+                self.dt = self.clock.tick(FPS) / 1e3
 
         # end game
         pygame.quit()

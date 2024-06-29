@@ -16,6 +16,7 @@ BARRIER_COLOR_RGB   = ( 15,  15,  15)
 FINISH_COLOR_RGB    = (241, 241, 241)
 DRIVELINE_COLOR_RGB = (255, 255,   0)
 TEXT_COLOR_RGB      = (  5,   5,   5)
+DEBUG_COLOR_RGB     = (200, 200, 255)
 FONT_SIZE = HEIGHT // 40
 
 USE_ANTIALIAS = True
@@ -47,7 +48,7 @@ LOWER_SHIFT_POINTS = (2000, 2700, 3400, 4100, 4650, 5050) # lowest RPMs for 2-7t
 # sensors config
 SHIFT_CONF_THRESH = 0.9 # how confident the model must be to shift up or down
 SENSOR_RANGE_M = 200 # how far the sensors reach around the vehicle, in meters
-SENSOR_ANGLES = (-45, -30, -23, -15, -10, -5, -3, -1, 0, 1, 3, 5, 10, 15, 23, 30, 45)
+SENSOR_ANGLES = (-75, -60, -45, -30, -20, -10, -5, -3, -1, 0, 1, 3, 5, 10, 20, 30, 45, 75, 60)
 SENSOR_NOT_FOUND = 1e6 # absurdly large number to indicate the sensor couldn't find anything nearby
 
 #
@@ -66,14 +67,15 @@ TRACK_BOUNDS = (
 #
 # model config
 #
-NET_INPUT_SHAPE = len(SENSOR_ANGLES) + 3 # n directions + speed, gear, rpms
-NET_OUTPUT_SHAPE = 3 # steering [-1, 1] throttle [-1, 1], up/downshift [-1, 1]
-LEARNING_RATE = 0.003
+NET_INPUT_SHAPE = len(SENSOR_ANGLES) + 4 # n directions + speed, gear, rpms, horsepower (a la the butt dyno)
+NET_OUTPUT_SHAPE = 6 # values from 0-1: accel, brake, left, right, downshift, upshift
+LEARNING_RATE = 0.0005
 BATCH_SIZE = 20
+VALIDATION_SPLIT = 0.0 # [0, 1], how much training data should be used for validation data
 TRAINING_EPOCHS = 1
 MODEL_METRICS = ["accuracy"]
-INTERPOLATION_FACTOR = 1 # scalar applied to rewards
-TRAINING_EPSILON = 0.125 # if random is less than epsilon, a random move is done
+INTERPOLATION_FACTOR = 0.9 # how much of the rewards are factored into training data; from [0, 1]
+TRAINING_EPSILON = 0.08 # if random is less than epsilon, a random move is done
 
-MAX_GENERATION_TIME = 20 # in seconds, max lifetime of a generation before training
+MAX_GENERATION_TIME = 30 # in seconds, max lifetime of a generation before training
 NUM_GENERATIONS = 200 # maximum number of generations

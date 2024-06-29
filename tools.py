@@ -1,10 +1,11 @@
 import math
-import tensorflow as tf
-from numba import njit
 import numpy as np
 import pygame
 import pygame.gfxdraw
 from scipy.interpolate import splprep, splev
+from tensorflow import keras
+from keras import layers, models, losses, optimizers, initializers
+from numba import njit
 import types
 
 import consts
@@ -24,24 +25,25 @@ def warn(*args): print("Warn:", *args)
 __HALF_MAX_TORQUE = 0.5 * consts.MAX_TORQUE
 __VEHICLE_MASS = consts.VEHICLE_WEIGHT / 2.205 # in kg
 
+# employ custom torque function
 @njit
-def getEngineTQ(rpms: int, throttle: float) -> float:
+def get_engine_TQ(rpms: int, throttle: float) -> float:
     if rpms < consts.IDLE_RPMS:
         return 0
     return throttle * __HALF_MAX_TORQUE * (math.sin((rpms / 3000) - 0.2) + 1)
 
 @njit
-def getEngineHP(rpms: int, throttle: float) -> float:
-    return getEngineTQ(rpms, throttle) * rpms / 5252
+def get_engine_HP(rpms: int, throttle: float) -> float:
+    return get_engine_TQ(rpms, throttle) * rpms / 5252
 
 # calculate the resulting net force the vehicle experiences at the given moment
 @njit
 def calcVehicleForce(gear: int, rpms: int, throttle: float) -> float:
     # handle speeding up and braking
-    speed = getSpeedFromRPMs(gear, max(consts.IDLE_RPMS, rpms))
+    speed = rpms_to_speed(gear, max(consts.IDLE_RPMS, rpms))
     f_engine = 0
     if throttle > 0:
-        f_engine = getEngineHP(rpms, throttle) * 745.7 / speed # 1 HP ~ 745.7 Watts
+        f_engine = get_engine_HP(rpms, throttle) * 745.7 / speed # 1 HP ~ 745.7 Watts
     else:
         f_engine = -consts.BRAKING_FRICTION * -throttle * __VEHICLE_MASS * consts.GRAVITY_ACCEL
 
@@ -55,14 +57,14 @@ def calcVehicleForce(gear: int, rpms: int, throttle: float) -> float:
 
 # calculate speed of car at a given moment
 @njit
-def getSpeedFromRPMs(gear: int, rpms: int) -> float:
+def rpms_to_speed(gear: int, rpms: int) -> float:
     wheel_rpms = rpms / (consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1])
     circumference = consts.ROLLING_DIAMETER_M * math.pi # meters
     return wheel_rpms * circumference / 60 # from meters/minute to meters/second
 
 # return the necessary RPMs for the given speed in the given gear
 @njit
-def getRPMsFromSpeed(speed: float, gear: int) -> float:
+def speed_to_rpms(speed: float, gear: int) -> float:
     circumference = consts.ROLLING_DIAMETER_M * math.pi # meters
     ratio = consts.FINAL_DRIVE * consts.GEAR_RATIOS[gear-1]
     return 60 * speed * ratio / circumference
@@ -74,15 +76,13 @@ def mph2ms(speed: float) -> float:
 
 # convert m/s to mph
 @njit
-def ms2mph(speed: float) -> float:
-    return speed * 2.237
+def ms2mph(speed: float) -> float: return speed * 2.237
 
 # convert lbs to kg
 @njit
-def lbs2kg(lbs: float) -> float:
-    return lbs / 2.205
+def lbs2kg(lbs: float) -> float: return lbs / 2.205
 
-# raycasting
+########## raycasting ##########
 
 # returns all the segments that make up the walls of the track and driver bboxes
 def get_obstacle_segs(track_poly: np.ndarray, bboxes: list[np.ndarray]) -> np.ndarray:
@@ -226,7 +226,6 @@ def get_segment_intersection(s1: np.ndarray, s2: np.ndarray) -> np.ndarray:
     # segments intersect at A + tr = B + us
     r_cross_x = cross2d(r, s)
     if r_cross_x == 0: return None # no intersection, prevent div by 0
-
     t = cross2d(C-A, s) / r_cross_x
 
     return (A + t*r)
@@ -241,14 +240,30 @@ def cross2d(A: np.ndarray, B: np.ndarray) -> float:
 #
 # #############################################
 
-def scaled_tanh(inputs):
-    return tf.keras.activations.tanh(inputs * 1)
+def create_model():
+    # create model
+    in_shape = (consts.NET_INPUT_SHAPE,)
+    intlzr = lambda: initializers.RandomNormal(stddev=0.01)
+    model = models.Sequential()
+    model.add(layers.Dense(24, input_shape=in_shape, kernel_initializer=intlzr(), activation="relu"))
+    model.add(layers.Dense(consts.NET_OUTPUT_SHAPE, kernel_initializer=intlzr(), activation="sigmoid"))
+
+    # compile model
+    model.compile(loss=losses.MeanSquaredError(),
+                  metrics=consts.MODEL_METRICS,
+                  optimizer=optimizers.Adam(learning_rate=consts.LEARNING_RATE))
+    
+    return model
 
 # #############################################
 #
 #               misc. tools
 #
 # #############################################
+
+@njit
+def clamp(lower: float, upper: float, value: float) -> float:
+    return max(min(value, upper), lower)
 
 def avg(data: any) -> float:
     if type(data) is types.GeneratorType: # explode generator to list (~2x faster from testing than np.fromiter)
