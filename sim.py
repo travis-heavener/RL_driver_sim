@@ -1,15 +1,11 @@
-# hide pygame welcome message (thanks https://stackoverflow.com/a/55769463)
-import os
-
-import pygame.freetype
-os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
-
 # fix Windows DPI scaling (thanks https://stackoverflow.com/a/32063729)
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
 import numpy as np
+import os
 import pygame
+import pygame.freetype
 from time import time
 
 import consts
@@ -60,7 +56,7 @@ class SimContainer:
 
         self.drivers.extend(drivers)
 
-    def run(self) -> None:
+    def run(self, show_bboxes=False, show_sensors=False, show_driveline=False, will_save_models=False) -> None:
         is_running = True
         last_trained_ts = time()
         last_frame_rate = last_frame_rate_ts = 0
@@ -84,10 +80,10 @@ class SimContainer:
 
             # render frame
             self.window.fill(GRASS_COLOR_RGB) # wipe screen
-            self.track.draw(self.window, show_driveline=True) # render track
+            self.track.draw(self.window, show_driveline=show_driveline) # render track
 
             for driver in self.drivers: # render each driver
-                driver.draw(self.window, draw_bbox=False, draw_sensor_paths=True)
+                driver.draw(self.window, draw_bbox=show_bboxes, draw_sensor_paths=show_sensors)
 
             # display FPS
             if time() - last_frame_rate_ts >= consts.FPS_DISPLAY_RATE:
@@ -114,7 +110,6 @@ class SimContainer:
             
             has_trained = False
             if not is_driver_remaining or time() - last_trained_ts > consts.MAX_GENERATION_TIME:
-                tools.log(f"Generation #{generation_num} ended.")
                 generation_num += 1
 
                 # train models
@@ -124,7 +119,6 @@ class SimContainer:
 
                 has_trained = True
                 last_trained_ts = time() # update last training timestamp
-                tools.log("Training complete.")
 
             if generation_num > consts.NUM_GENERATIONS:
                 is_running = False
@@ -139,4 +133,12 @@ class SimContainer:
         pygame.quit()
 
         # export models
-        print("TODO: export models & display summary")
+        if will_save_models:
+            # get newest folder (ref: https://stackoverflow.com/a/2014704)
+            output_folder = tools.gen_model_folder()
+
+            for driver in self.drivers:
+                driver.train() # train on any remaining memories
+                driver.export_model(output_folder)
+            
+            tools.log(f"Models exported to: {output_folder}")

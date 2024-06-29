@@ -37,7 +37,7 @@ BRAKING_FRICTION = 0.70 # coefficient of braking friction
 GRAVITY_ACCEL = 9.81 # g, in m/s/s
 
 # vehicle powertrain
-STEERING_ANGLE = 60 # in degrees, maximum steering angle
+STEERING_ANGLE = 90 # in degrees, maximum steering angle
 MAX_SPEED = 75 # in m/s, governor-limited speed (set to a value near the vehicle's theoretical top speed)
 MAX_TORQUE = 375 # in lb-ft
 IDLE_RPMS, REDLINE_RPMS, MAX_RPMS = 750, 7000, 8000
@@ -47,8 +47,8 @@ LOWER_SHIFT_POINTS = (2000, 2700, 3400, 4100, 4650, 5050) # lowest RPMs for 2-7t
 
 # sensors config
 SHIFT_CONF_THRESH = 0.9 # how confident the model must be to shift up or down
-SENSOR_RANGE_M = 200 # how far the sensors reach around the vehicle, in meters
-SENSOR_ANGLES = (-75, -60, -45, -30, -20, -10, -5, -3, -1, 0, 1, 3, 5, 10, 20, 30, 45, 75, 60)
+SENSOR_RANGE_M = 100 # how far the sensors reach around the vehicle, in meters
+SENSOR_ANGLES = (-75, -60, -45, -30, -20, -10, -5, 0, 5, 10, 20, 30, 45, 75, 60)
 SENSOR_NOT_FOUND = 1e6 # absurdly large number to indicate the sensor couldn't find anything nearby
 
 #
@@ -64,6 +64,8 @@ TRACK_BOUNDS = (
     (WIDTH * 0.95, HEIGHT * 0.95)  # bottom-right
 )
 
+TRACKS_FOLDER = "./tracks/"
+
 #
 # model config
 #
@@ -74,8 +76,10 @@ BATCH_SIZE = 20
 VALIDATION_SPLIT = 0.0 # [0, 1], how much training data should be used for validation data
 TRAINING_EPOCHS = 1
 MODEL_METRICS = ["accuracy"]
-INTERPOLATION_FACTOR = 0.9 # how much of the rewards are factored into training data; from [0, 1]
+INTERPOLATION_FACTOR = 0.75 # how much of the rewards are factored into training data; from [0, 1]
 TRAINING_EPSILON = 0.08 # if random is less than epsilon, a random move is done
 
 MAX_GENERATION_TIME = 30 # in seconds, max lifetime of a generation before training
-NUM_GENERATIONS = 200 # maximum number of generations
+NUM_GENERATIONS = 100 # maximum number of generations
+
+MODELS_FOLDER = "./models/"

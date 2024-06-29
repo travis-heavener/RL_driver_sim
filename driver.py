@@ -56,6 +56,7 @@ class Driver:
     img: pygame.Surface = None
     car_num: int
     has_crashed: bool = False
+    pos_restore_status: bool = False # whether or not to restore the driver's telemetry between generations
     memory: list = [] # store all states in this current generation's batch
 
     # physics
@@ -68,7 +69,6 @@ class Driver:
     direction: float = 0 # degrees
     gear: int = 1
     rpms: float = consts.IDLE_RPMS
-    parking_start: float = -1 # how long the vehicle has gone without moving
 
     # reward system
     saved_state = None # the current state of the driver before the last move
@@ -89,22 +89,29 @@ class Driver:
         # create new blank-slate network
         self.model = tools.create_model()
     
+    def log(self):
+        print(f"Speed: {round(tools.ms2mph(self.speed))} mph, Gear: {self.gear}, RPMs: {round(self.rpms)}, Throttle: {self.throttle}")
+
     def reset(self):
+        if not self.has_crashed and not self.pos_restore_status: return
+
         self.x, self.y = self._start_x, self._start_y
         self.speed = self.accel = self.direction = 0
-        
+    
         self.throttle = self.steering = 0
         self.gear, self.rpms = 1, consts.IDLE_RPMS
 
-        self.has_crashed = False
-        self.parking_start = -1
         self.saved_state["state"].clear()
         self.saved_state["output"] = None
         self.memory.clear()
+        self.has_crashed = False
 
     def set_start_pos(self, x: float, y: float) -> None:
         self.x = x; self.y = y
         self._start_x = x; self._start_y = y
+
+    def set_pos_restore(self, status: bool) -> None:
+        self.pos_restore_status = status
 
     #
     # draws the driver on the window
@@ -156,8 +163,8 @@ class Driver:
 
         # update telemetry
         normalize = lambda n: round( float(n), 2 )
-        self.throttle = 2 * normalize(output_data[ACCEL] - output_data[BRAKE])
-        self.steering = 2 * normalize(output_data[RIGHT] - output_data[LEFT])
+        self.throttle = normalize(output_data[ACCEL] - output_data[BRAKE]) # [-1, 1]
+        self.steering = normalize(output_data[RIGHT] - output_data[LEFT]) # [-1, 1]
         downshift_conf = normalize(output_data[DOWNSHIFT])
         upshift_conf = normalize(output_data[UPSHIFT])
 
@@ -171,8 +178,6 @@ class Driver:
 
             if self.throttle >= 0: # if stopped and not braking, start moving
                 self.speed = tools.rpms_to_speed(self.gear, self.rpms)
-            elif self.parking_start == -1:
-                self.parking_start = time()
 
 
         # electronically limit speed
@@ -185,7 +190,6 @@ class Driver:
             self.direction -= self.steering * consts.STEERING_ANGLE * dt # -1 is left, +1 is right
 
             # update rpms if accelerating from stop or already moving
-            self.parking_start = -1
             self.rpms = max(consts.IDLE_RPMS, tools.speed_to_rpms(self.speed, self.gear))
         else:
             self.accel = 0.0
@@ -215,8 +219,6 @@ class Driver:
         if type(self.direction) is not float: self.direction = float(self.direction)
         if type(self.throttle) is not float: self.throttle = float(self.throttle)
         if type(self.steering) is not float: self.steering = float(self.steering)
-
-        # print(f"Speed: {round(tools.ms2mph(self.speed))} mph, Gear: {self.gear}, RPMs: {round(self.rpms)}, Throttle: {self.throttle}")
 
     #
     # get the driver's current state as a dict
@@ -333,6 +335,7 @@ class Driver:
     #
     def _get_reward(self, track_poly: np.ndarray, drivers: list[any]) -> list[float]:
         rewards = [ 0.5 for i in range(consts.NET_OUTPUT_SHAPE) ]
+        rewards[UPSHIFT] = rewards[DOWNSHIFT] = 0
         SENSOR_RANGE = consts.SENSOR_RANGE_M
 
         ######### get previous state & relevant metrics #########
@@ -364,10 +367,6 @@ class Driver:
             # indicate to brake hard
             rewards[ACCEL] = 0
             rewards[BRAKE] = 1
-
-            # indicate to veer towards an opening
-            rewards[LEFT] = float(left_gap > right_gap)
-            rewards[RIGHT] = float(left_gap < right_gap)
             return rewards
 
         # check for money shifts
@@ -392,12 +391,12 @@ class Driver:
         ######### reward evaluation for state changes #########
         
         # evaluate accelerating and slowing near gaps
-        rewards[ACCEL] = (1 - self.mood.accel) * (front_gap - 1) + 1 # accel w/ more gap
-        rewards[BRAKE] = 1 - front_gap * (1 + 4 * self.mood.braking) # brake w/ less gap
+        rewards[ACCEL] = 0.5 * (1 - self.mood.accel) * (front_gap - 1) + 1 # accel w/ more gap
+        rewards[BRAKE] = 1 - front_gap * (1 + 5 * self.mood.braking) # brake w/ less gap
 
         # handle lateral spacing
-        rewards[LEFT] = 1 - left_gap
-        rewards[RIGHT] = 1 - right_gap
+        rewards[LEFT] = 0.67 * (1 - left_gap) + 0.33 * right_gap
+        rewards[RIGHT] = 0.67 * (1 - right_gap) + 0.33 * left_gap
 
         # reward and punish shift points
         shift_points = self.get_shift_points()
@@ -440,9 +439,7 @@ class Driver:
     #
     def train(self):
         # if a driver is crashed into from the start, ignore them from training
-        if len(self.memory) == 0:
-            tools.warn(f"Driver {self.car_num} crashed before logging memories, cannot train.")
-            return
+        if len(self.memory) == 0: return
 
         # extract data from bank
         inputs, outputs, rewards = [], [], []
@@ -471,10 +468,16 @@ class Driver:
         # wipe memory bank
         self.memory.clear()
 
+    # export the model to a folder
+    def export_model(self, folder: str) -> None:
+        self.model.save(folder + "/" + str(self.car_num) + ".keras")
+
 # #############################################
 #
 # TrainedDriver for loading existing models
 #
 # #############################################
 class TrainedDriver(Driver):
-    pass
+    def __init__(self, model_src: str):
+        super().__init__()
+        self.model = tf.keras.models.load_model(model_src)
