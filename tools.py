@@ -131,6 +131,45 @@ def emit_ray(obstacle_segs: np.ndarray, ray: np.ndarray, return_on_hit=False) ->
 
     return closest_obstacle
 
+#
+# Returns a tuple of the lower and upper shift points for the current gear,
+# factoring in driver mood.
+#
+@njit
+def get_shift_points(gear: int, rev_bias: float) -> tuple[int, int]:
+    lower = None if gear == 1 else consts.LOWER_SHIFT_POINTS[gear-2]
+    if lower is not None:
+        lower -= 0.67 * (1-rev_bias) * (consts.MAX_RPMS - consts.REDLINE_RPMS)
+        lower = max(lower, consts.IDLE_RPMS)
+    upper = consts.MAX_RPMS - 2 * (1-rev_bias) * (consts.MAX_RPMS - consts.REDLINE_RPMS)
+    return (lower, upper)
+
+# get the lowest (target) gear at a given wheel speed
+@njit
+def get_target_gear(speed: float, rev_bias: float) -> float:
+    num_gears = len(consts.GEAR_RATIOS)
+    for gear in range(1, num_gears+1):
+        shift_pts = get_shift_points(gear, rev_bias) # get shift points for gear
+        rpms = speed_to_rpms(speed, gear) # get rpms in gear
+
+        if rpms < shift_pts[1]: # rpms are low enough to fit in the gear
+            return gear
+    
+    # base case, last gear
+    return num_gears
+
+# returns True when a downshift would result in a money shift
+@njit
+def is_moneyshift_possible(speed: float, gear: int, rev_bias: float) -> bool:
+    if gear <= 1: return True
+    return speed_to_rpms(speed, gear-1) > consts.MAX_RPMS
+
+# returns True when an upshift would result in lugging
+@njit
+def is_lugging_possible(speed: float, gear: int, rev_bias: float) -> bool:
+    if gear >= len(consts.GEAR_RATIOS): return True
+    return speed_to_rpms(speed, gear+1) < get_shift_points(gear+1, rev_bias)[0]
+
 # #############################################
 #
 #               track tools

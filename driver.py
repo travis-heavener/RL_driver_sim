@@ -38,8 +38,8 @@ class DriverMood:
 
 # preset DriverMoods
 MOOD_NORMAL   = DriverMood() # uses defaults
-MOOD_SPEEDY   = DriverMood(accel=0.95, braking=0.80, speed=0.99, margin=0.30, rev_bias=0.90)
-MOOD_YOLO     = DriverMood(accel=1.00, braking=0.90, speed=1.00, margin=0.10, rev_bias=0.99)
+MOOD_SPEEDY   = DriverMood(accel=1.00, braking=0.90, speed=0.99, margin=0.30, rev_bias=0.90)
+MOOD_YOLO     = DriverMood(accel=1.00, braking=1.00, speed=1.00, margin=0.10, rev_bias=1.00)
 MOOD_NERVOUS  = DriverMood(accel=0.50, braking=0.40, speed=0.70, margin=0.85, rev_bias=0.35)
 MOOD_ECO      = DriverMood(accel=0.35, braking=0.70, speed=0.65, margin=0.50, rev_bias=0.30)
 
@@ -318,18 +318,6 @@ class Driver:
         return np.array(rotated_bbox)
 
     #
-    # Returns a tuple of the lower and upper shift points for the current gear,
-    # factoring in driver mood.
-    #
-    def get_shift_points(self) -> tuple[int, int]:
-        lower = None if self.gear == 1 else consts.LOWER_SHIFT_POINTS[self.gear-2]
-        if lower is not None:
-            lower -= 0.67 * self.mood.rev_bias * (consts.MAX_RPMS - consts.REDLINE_RPMS)
-            lower = max(lower, consts.IDLE_RPMS)
-        upper = consts.MAX_RPMS - 2 * self.mood.rev_bias * (consts.MAX_RPMS - consts.REDLINE_RPMS)
-        return (lower, upper)
-
-    #
     # Calculate the driver's reward from their current position based on their mood.
     # The rewards' values correspond to what the model's output values should have been [0, 1].
     #
@@ -353,6 +341,7 @@ class Driver:
         right_gap = min(right_gap * SENSOR_RANGE / consts.TRACK_WIDTH_M / 2, 1)
 
         # shifting changes
+        has_accelerated = self.speed > state["speed"]
         has_upshifted = self.gear > state["gear"]
         has_downshifted = self.gear < state["gear"]
 
@@ -391,25 +380,65 @@ class Driver:
         ######### reward evaluation for state changes #########
         
         # evaluate accelerating and slowing near gaps
-        rewards[ACCEL] = 0.5 * (1 - self.mood.accel) * (front_gap - 1) + 1 # accel w/ more gap
-        rewards[BRAKE] = 1 - front_gap * (1 + 5 * self.mood.braking) # brake w/ less gap
+        min_gap = min(self.speed / (2 + 1.5 * self.mood.braking) / SENSOR_RANGE, 0.99) # in meters, around 2.75m space per 10m/s
+
+        if front_gap < min_gap: # too close
+            rewards[ACCEL] = 0
+            rewards[BRAKE] = 1 - 0.8 * (front_gap / min_gap) # brake harder when gap is smaller
+        else: # sufficient front gap
+            scaled_gap = (front_gap - min_gap) / (1 - min_gap) # front gap starting from scaled_gap to max range
+            rewards[ACCEL] = min(scaled_gap / (1 - self.mood.accel) + 0.5, 1) # accel harder when gap is larger
+            rewards[BRAKE] = 0
 
         # handle lateral spacing
-        rewards[LEFT] = 0.67 * (1 - left_gap) + 0.33 * right_gap
-        rewards[RIGHT] = 0.67 * (1 - right_gap) + 0.33 * left_gap
+        rewards[LEFT] = 0.5 * (1 - left_gap) + 0.5 * right_gap
+        rewards[RIGHT] = 0.5 * (1 - right_gap) + 0.5 * left_gap
 
         # reward and punish shift points
-        shift_points = self.get_shift_points()
+        shift_points = tools.get_shift_points(self.gear, self.mood.rev_bias)
         scaled_rpms = self.rpms / consts.MAX_RPMS # rpms from 0 to 1
         lower_pt = (shift_points[0] if shift_points[0] is not None else consts.IDLE_RPMS) / consts.MAX_RPMS
         upper_pt = shift_points[1] / consts.MAX_RPMS
 
-        if has_upshifted: # reward based on how close the rpms are to the lower shift pt of the new gear
+        # 
+        if has_upshifted:
+            # reward based on how close the rpms are to the lower shift pt of the new gear
             rewards[UPSHIFT] = tools.clamp(0, 1, 1 - abs(scaled_rpms - lower_pt) / lower_pt)
-        elif has_downshifted: # reward based on how close the rpms are to the upper shift pt of the new gear
+        elif has_downshifted:
+            # reward based on how close the rpms are to the upper shift pt of the new gear
             rewards[DOWNSHIFT] = tools.clamp(0, 1, 1 - abs(scaled_rpms - upper_pt) / upper_pt)
+        else: # indicate whether or not to shift given the current rpms
+            num_gears = len(consts.GEAR_RATIOS)
 
-        # average out rewards
+            can_moneyshift = tools.is_moneyshift_possible(self.speed, self.gear, self.mood.rev_bias)
+            can_lug = tools.is_lugging_possible(self.speed, self.gear, self.mood.rev_bias)
+            should_downshift = self.gear > 1 and self.rpms < shift_points[0]
+            should_upshift = self.gear < num_gears and self.rpms > shift_points[1]
+
+            # penalize potential money shifts and/or lugging
+            if can_moneyshift or can_lug:
+                if can_moneyshift: rewards[DOWNSHIFT] = 0
+                if can_lug: rewards[UPSHIFT] = 0
+            elif should_upshift or should_downshift: # reward based on shift points
+                if should_downshift: # reward downshifts if lugging
+                    rewards[DOWNSHIFT] = 1; rewards[UPSHIFT] = 0
+                
+                if should_upshift and has_accelerated: # reward for upshifting
+                    rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 1
+                else: # punish down and upshifts when braking
+                    rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 0
+            else: # no shifts are urgent--shift based on staying in lowest gear possible
+                # aim for lowest gear possible (for accel: torque, for braking: engine braking; coasting not an issue)
+                # given the speed, find the lowest gear possible
+                target_gear = tools.get_target_gear(self.speed, self.mood.rev_bias)
+
+                if target_gear < self.gear: # prioritize downshift
+                    rewards[DOWNSHIFT] = 1; rewards[UPSHIFT] = 0
+                elif target_gear > self.gear: # prioritize upshift
+                    rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 1
+                else: # gear selection is good
+                    rewards[DOWNSHIFT] = rewards[UPSHIFT] = 0
+
         return rewards
 
     #

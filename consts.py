@@ -33,11 +33,11 @@ ROLLING_DIAMETER_M = 0.635 # in meters
 ENGINE_BRAKE_COEF = 0.06 # simulated crankshaft inertia for throttle
 DRAG_COEF = 0.33 # estimated drag coefficient
 ROLLING_FRICTION = 0.02 # coefficient of rolling friction (NOT kinetic friction)
-BRAKING_FRICTION = 0.70 # coefficient of braking friction
+BRAKING_FRICTION = 2.80 # coefficient of braking friction
 GRAVITY_ACCEL = 9.81 # g, in m/s/s
 
 # vehicle powertrain
-STEERING_ANGLE = 90 # in degrees, maximum steering angle
+STEERING_ANGLE = 135 # in degrees, maximum steering angle
 MAX_SPEED = 75 # in m/s, governor-limited speed (set to a value near the vehicle's theoretical top speed)
 MAX_TORQUE = 375 # in lb-ft
 IDLE_RPMS, REDLINE_RPMS, MAX_RPMS = 750, 7000, 8000
@@ -46,7 +46,7 @@ GEAR_RATIOS = (3.50, 2.73, 2.13, 1.66, 1.30, 1.01, 0.79)
 LOWER_SHIFT_POINTS = (2000, 2700, 3400, 4100, 4650, 5050) # lowest RPMs for 2-7th gears
 
 # sensors config
-SHIFT_CONF_THRESH = 0.9 # how confident the model must be to shift up or down
+SHIFT_CONF_THRESH = 0.8 # how confident the model must be to shift up or down
 SENSOR_RANGE_M = 100 # how far the sensors reach around the vehicle, in meters
 SENSOR_ANGLES = (-75, -60, -45, -30, -20, -10, -5, 0, 5, 10, 20, 30, 45, 75, 60)
 SENSOR_NOT_FOUND = 1e6 # absurdly large number to indicate the sensor couldn't find anything nearby

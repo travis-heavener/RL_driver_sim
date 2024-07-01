@@ -77,6 +77,7 @@ class SimContainer:
 
                 for driver in self.drivers: # rate each driver's move
                     driver.evaluate(self.track.track_poly, self.drivers)
+                    # driver.log()
 
             # render frame
             self.window.fill(GRASS_COLOR_RGB) # wipe screen
