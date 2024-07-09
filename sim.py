@@ -56,7 +56,7 @@ class SimContainer:
 
         self.drivers.extend(drivers)
 
-    def run(self, show_bboxes=False, show_sensors=False, show_driveline=False, will_save_models=False) -> None:
+    def run(self, kwargs: dict) -> None:
         is_running = True
         last_trained_ts = time()
         last_frame_rate = last_frame_rate_ts = 0
@@ -77,14 +77,14 @@ class SimContainer:
 
                 for driver in self.drivers: # rate each driver's move
                     driver.evaluate(self.track.track_poly, self.drivers)
-                    # driver.log()
+                    if kwargs["will_log"]: driver.log()
 
             # render frame
             self.window.fill(GRASS_COLOR_RGB) # wipe screen
-            self.track.draw(self.window, show_driveline=show_driveline) # render track
+            self.track.draw(self.window, show_driveline=kwargs["show_driveline"]) # render track
 
             for driver in self.drivers: # render each driver
-                driver.draw(self.window, draw_bbox=show_bboxes, draw_sensor_paths=show_sensors)
+                driver.draw(self.window, draw_bbox=kwargs["show_bboxes"], draw_sensor_paths=kwargs["show_sensors"])
 
             # display FPS
             if time() - last_frame_rate_ts >= consts.FPS_DISPLAY_RATE:
@@ -134,7 +134,7 @@ class SimContainer:
         pygame.quit()
 
         # export models
-        if will_save_models:
+        if kwargs["will_save_models"]:
             # get newest folder (ref: https://stackoverflow.com/a/2014704)
             output_folder = tools.gen_model_folder()
 

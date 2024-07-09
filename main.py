@@ -10,8 +10,7 @@ from sim import SimContainer
 #
 # main function
 #
-def main(track_src: str, model_srcs=None, show_bboxes=False, show_sensors=False, show_driveline=False,
-         will_save_models=False, no_pos_restore=False):
+def main(track_src: str, kwargs: dict, model_srcs=None):
     # load track from disc
     track = Track(consts.TRACKS_FOLDER + track_src + ".csv")
 
@@ -25,14 +24,17 @@ def main(track_src: str, model_srcs=None, show_bboxes=False, show_sensors=False,
     else:
         drivers.extend([ TrainedDriver(consts.MODELS_FOLDER + src + ".keras") for src in model_srcs ])
 
-    if no_pos_restore:
+    if kwargs["no_pos_restore"]:
         for driver in drivers:
             driver.set_pos_restore(False)
+    if kwargs["zero_epsilon"]:
+        for driver in drivers:
+            driver.set_epsilon(0)
 
     sim = SimContainer(track) # initialize simulation window
     sim.addDrivers(*drivers) # add drivers to sim
 
-    sim.run(show_bboxes, show_sensors, show_driveline, will_save_models) # start the simulation
+    sim.run(kwargs) # start the simulation
 
 if __name__ == "__main__":
     if len(argv) < 2:
@@ -40,11 +42,15 @@ if __name__ == "__main__":
         exit(1)
     
     track_src = argv[1]
-    show_bboxes = "show_bboxes" in argv
-    show_sensors = "show_sensors" in argv
-    show_driveline = "show_driveline" in argv
-    will_save_models = "no_save" not in argv
-    no_pos_restore = "no_restore" in argv
+    kwargs = {
+        "show_bboxes": "show_bboxes" in argv,
+        "show_sensors": "show_sensors" in argv,
+        "show_driveline": "show_driveline" in argv,
+        "will_save_models": "no_save" not in argv,
+        "no_pos_restore": "no_restore" in argv,
+        "will_log": "show_logs" in argv,
+        "zero_epsilon": "zero_epsilon" in argv # eliminate random desicion making
+    }
 
     model_srcs = None
     for arg in argv:
@@ -54,4 +60,4 @@ if __name__ == "__main__":
             break
 
     # use first argument as source file
-    main(track_src, model_srcs, show_bboxes, show_sensors, show_driveline, will_save_models, no_pos_restore)
+    main(track_src, kwargs, model_srcs)

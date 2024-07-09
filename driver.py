@@ -72,6 +72,7 @@ class Driver:
 
     # reward system
     saved_state = None # the current state of the driver before the last move
+    training_epsilon = consts.TRAINING_EPSILON
 
     def __init__(self, mood: DriverMood=None):
         # update racer number
@@ -112,6 +113,9 @@ class Driver:
 
     def set_pos_restore(self, status: bool) -> None:
         self.pos_restore_status = status
+    
+    def set_epsilon(self, epsilon: float) -> None:
+        self.training_epsilon = epsilon
 
     #
     # draws the driver on the window
@@ -156,7 +160,7 @@ class Driver:
 
         # run model
         output_data = None
-        if random() <= consts.TRAINING_EPSILON:
+        if random() <= self.training_epsilon:
             output_data = [random() for i in range(consts.NET_OUTPUT_SHAPE)]
         else:
             output_data = self.model(input_data, training=False)[0]
@@ -363,6 +367,12 @@ class Driver:
             # indicate to not shift
             self.has_crashed = True
             rewards[DOWNSHIFT] = 0
+            responses = [f"Car #{self.car_num}, those'll be some expensive repairs!",
+                         f"Let's all welcome #{self.car_num} to the Money Shift Club!",
+                         f"Car #{self.car_num} just moneyshifted, making them today's biggest loser!",
+                         f"Send out the safety car, #{self.car_num} mistook 2nd for 4th...",
+                         f"Womp womp, #{self.car_num}, nice moneyshift."]
+            print(responses[int(random() * len(responses))])
             return rewards
 
         """ UNUSED
@@ -395,49 +405,15 @@ class Driver:
         rewards[RIGHT] = 0.5 * (1 - right_gap) + 0.5 * left_gap
 
         # reward and punish shift points
-        shift_points = tools.get_shift_points(self.gear, self.mood.rev_bias)
-        scaled_rpms = self.rpms / consts.MAX_RPMS # rpms from 0 to 1
-        lower_pt = (shift_points[0] if shift_points[0] is not None else consts.IDLE_RPMS) / consts.MAX_RPMS
-        upper_pt = shift_points[1] / consts.MAX_RPMS
+        # aim for lowest gear possible (for accel: torque, for braking: engine braking; coasting not an issue)
+        target_gear = tools.get_target_gear(self.speed, self.mood.rev_bias)
 
-        # 
-        if has_upshifted:
-            # reward based on how close the rpms are to the lower shift pt of the new gear
-            rewards[UPSHIFT] = tools.clamp(0, 1, 1 - abs(scaled_rpms - lower_pt) / lower_pt)
-        elif has_downshifted:
-            # reward based on how close the rpms are to the upper shift pt of the new gear
-            rewards[DOWNSHIFT] = tools.clamp(0, 1, 1 - abs(scaled_rpms - upper_pt) / upper_pt)
-        else: # indicate whether or not to shift given the current rpms
-            num_gears = len(consts.GEAR_RATIOS)
-
-            can_moneyshift = tools.is_moneyshift_possible(self.speed, self.gear, self.mood.rev_bias)
-            can_lug = tools.is_lugging_possible(self.speed, self.gear, self.mood.rev_bias)
-            should_downshift = self.gear > 1 and self.rpms < shift_points[0]
-            should_upshift = self.gear < num_gears and self.rpms > shift_points[1]
-
-            # penalize potential money shifts and/or lugging
-            if can_moneyshift or can_lug:
-                if can_moneyshift: rewards[DOWNSHIFT] = 0
-                if can_lug: rewards[UPSHIFT] = 0
-            elif should_upshift or should_downshift: # reward based on shift points
-                if should_downshift: # reward downshifts if lugging
-                    rewards[DOWNSHIFT] = 1; rewards[UPSHIFT] = 0
-                
-                if should_upshift and has_accelerated: # reward for upshifting
-                    rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 1
-                else: # punish down and upshifts when braking
-                    rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 0
-            else: # no shifts are urgent--shift based on staying in lowest gear possible
-                # aim for lowest gear possible (for accel: torque, for braking: engine braking; coasting not an issue)
-                # given the speed, find the lowest gear possible
-                target_gear = tools.get_target_gear(self.speed, self.mood.rev_bias)
-
-                if target_gear < self.gear: # prioritize downshift
-                    rewards[DOWNSHIFT] = 1; rewards[UPSHIFT] = 0
-                elif target_gear > self.gear: # prioritize upshift
-                    rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 1
-                else: # gear selection is good
-                    rewards[DOWNSHIFT] = rewards[UPSHIFT] = 0
+        if target_gear < self.gear: # prioritize downshift
+            rewards[DOWNSHIFT] = 1; rewards[UPSHIFT] = 0
+        elif target_gear > self.gear: # prioritize upshift
+            rewards[DOWNSHIFT] = 0; rewards[UPSHIFT] = 1
+        else: # gear selection is good
+            rewards[DOWNSHIFT] = rewards[UPSHIFT] = 0
 
         return rewards
 
