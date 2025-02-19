@@ -32,8 +32,8 @@ ROLLING_DIAMETER_M = 0.635 # in meters
 
 ENGINE_BRAKE_COEF = 0.06 # simulated crankshaft inertia for throttle
 DRAG_COEF = 0.33 # estimated drag coefficient
-ROLLING_FRICTION = 0.02 # coefficient of rolling friction (NOT kinetic friction)
-BRAKING_FRICTION = 2.80 # coefficient of braking friction
+ROLLING_FRICTION = 0.05 # coefficient of rolling friction (NOT kinetic friction)
+BRAKING_FRICTION = 4.00 # coefficient of braking friction
 GRAVITY_ACCEL = 9.81 # g, in m/s/s
 
 # vehicle powertrain
