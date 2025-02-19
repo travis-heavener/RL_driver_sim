@@ -1,8 +1,8 @@
 #
 # window config
 #
-WIDTH  = 1600
-HEIGHT =  900
+WIDTH  = 1200
+HEIGHT =  800
 FPS = 60
 FPS_DISPLAY_RATE = 0.2 # in seconds, how often to refresh the frame rate display
 PX_METER_RATIO = 1 # DEFAULT, updated by scaling; pixels per meter
@@ -10,8 +10,8 @@ def set_px_ratio(ratio: float) -> None:
     global PX_METER_RATIO
     PX_METER_RATIO = ratio
 
-GRASS_COLOR_RGB     = ( 18, 118,  46)
-TRACK_COLOR_RGB     = ( 96,  96,  96)
+GRASS_COLOR_RGB     = ( 53, 163,  46)
+TRACK_COLOR_RGB     = ( 80,  80,  80)
 BARRIER_COLOR_RGB   = ( 15,  15,  15)
 FINISH_COLOR_RGB    = (241, 241, 241)
 DRIVELINE_COLOR_RGB = (255, 255,   0)
