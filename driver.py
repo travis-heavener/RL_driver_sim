@@ -4,12 +4,10 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
 
 from collections import OrderedDict
 import math
-from numba import jit, njit
 import numpy as np
 import tensorflow as tf
 import pygame
 from random import random
-from time import time
 
 import consts
 import tools

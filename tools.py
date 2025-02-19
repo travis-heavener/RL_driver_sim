@@ -3,7 +3,6 @@ import numpy as np
 import pygame
 import pygame.gfxdraw
 from scipy.interpolate import splprep, splev
-from tensorflow import keras
 from keras import layers, models, losses, optimizers, initializers
 from numba import njit
 import os

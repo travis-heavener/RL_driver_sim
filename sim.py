@@ -2,15 +2,13 @@
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
-import numpy as np
-import os
 import pygame
 import pygame.freetype
 from time import time
 
 import consts
 from consts import WIDTH, HEIGHT, FPS, GRASS_COLOR_RGB
-from driver import Driver, TrainedDriver
+from driver import Driver
 from track import Track
 import tools
 
