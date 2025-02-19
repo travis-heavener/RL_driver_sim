@@ -285,6 +285,8 @@ def create_model():
     intlzr = lambda: initializers.RandomNormal(stddev=0.01)
     model = models.Sequential()
     model.add(layers.Dense(24, input_shape=in_shape, kernel_initializer=intlzr(), activation="relu"))
+    model.add(layers.Dense(48, kernel_initializer=intlzr(), activation="relu"))
+    model.add(layers.Dense(16, kernel_initializer=intlzr(), activation="relu"))
     model.add(layers.Dense(consts.NET_OUTPUT_SHAPE, kernel_initializer=intlzr(), activation="sigmoid"))
 
     # compile model
