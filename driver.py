@@ -373,18 +373,6 @@ class Driver:
             print(responses[int(random() * len(responses))])
             return rewards
 
-        """ UNUSED
-        # check for sharp steering
-        # literally just roll die to see whether or not the vehicle crashed
-        flip_thresh = random()
-        probability = 0.5 * self.steering / consts.STEERING_ANGLE * (np.tanh(self.speed / 5 - 4) + 1)
-        self.has_crashed = flip_thresh < probability
-
-        if self.has_crashed:
-            rewards[THROTTLE] = -3.5; rewards[STEERING] = -5; rewards[SHIFTING] = -2.5
-            return rewards
-        """
-
         ######### reward evaluation for state changes #########
         
         # evaluate accelerating and slowing near gaps
