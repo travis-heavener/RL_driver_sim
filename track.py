@@ -26,8 +26,8 @@ class Track:
     driveline: np.ndarray
 
     def __init__(self, track_src: str):
-        MAX_WIDTH = consts.TRACK_BOUNDS[1][0] - consts.TRACK_BOUNDS[0][0]
-        MAX_HEIGHT = consts.TRACK_BOUNDS[1][1] - consts.TRACK_BOUNDS[0][1]
+        MAX_VW = consts.TRACK_BOUNDS[1][0] - consts.TRACK_BOUNDS[0][0]
+        MAX_VH = consts.TRACK_BOUNDS[1][1] - consts.TRACK_BOUNDS[0][1]
 
         # load track from file
         vertices: list[tuple[int, int]] = []
@@ -64,10 +64,13 @@ class Track:
 
         # scale both walls together
         c_track = ( # bottom-left + midpoint
-            consts.TRACK_BOUNDS[0][0] + MAX_WIDTH / 2,
-            consts.TRACK_BOUNDS[0][1] + MAX_HEIGHT / 2
+            consts.TRACK_BOUNDS[0][0] + MAX_VW / 2,
+            consts.TRACK_BOUNDS[0][1] + MAX_VH / 2
         )
-        scale_factor = float(min( (MAX_WIDTH, MAX_HEIGHT) / np.ptp(outer_wall, axis=0) ))
+
+        # Scale based on width and height of track
+        scale_factor = float(min( (MAX_VW, MAX_VH) / np.ptp(outer_wall, axis=0) ))
+        scale_factor *= 0.9 # Add damping factor
 
         # update pixels per meter ratio
         consts.set_px_ratio(scale_factor)

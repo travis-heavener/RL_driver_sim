@@ -5,7 +5,6 @@ import pygame.gfxdraw
 from scipy.interpolate import splprep, splev
 from keras import layers, models, losses, optimizers, initializers
 from numba import njit
-import os
 import types
 
 import consts
@@ -330,12 +329,3 @@ def get_reward_avg(rewards: any) -> float:
 @njit
 def sign(n: float) -> float:
     return 1 if n > 0 else -1 if n < 0 else 0
-
-def gen_model_folder():
-    if not os.path.exists(consts.MODELS_FOLDER):
-        os.mkdir(consts.MODELS_FOLDER)
-    
-    # get folder id (ref: https://stackoverflow.com/a/36150375)
-    folder_id = hex( len(next(os.walk(consts.MODELS_FOLDER))[1]) + 1 )[2:]
-    os.mkdir(consts.MODELS_FOLDER + folder_id)
-    return consts.MODELS_FOLDER + folder_id

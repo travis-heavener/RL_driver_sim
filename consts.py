@@ -19,7 +19,10 @@ TEXT_COLOR_RGB      = (  5,   5,   5)
 DEBUG_COLOR_RGB     = (200, 200, 255)
 FONT_SIZE = HEIGHT // 40
 
-USE_ANTIALIAS = True
+USE_ANTIALIAS = False
+def set_use_antialias(use_aa: bool):
+    global USE_ANTIALIAS
+    USE_ANTIALIAS = use_aa
 
 #
 # vehicle config
@@ -64,8 +67,6 @@ TRACK_BOUNDS = (
     (WIDTH * 0.95, HEIGHT * 0.95)  # bottom-right
 )
 
-TRACKS_FOLDER = "./tracks/"
-
 #
 # model config
 #
@@ -81,5 +82,3 @@ TRAINING_EPSILON = 0.08 # if random is less than epsilon, a random move is done
 
 MAX_GENERATION_TIME = 30 # in seconds, max lifetime of a generation before training
 NUM_GENERATIONS = 100 # maximum number of generations
-
-MODELS_FOLDER = "./models/"

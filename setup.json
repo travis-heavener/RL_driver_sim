@@ -1,0 +1,21 @@
+{
+    "track": "tracks/0.csv",
+    "racers": [
+        {
+            "model": {
+                "loadFrom": "models/1.keras",
+                "saveTo": "models/dump.keras"
+            },
+            "mood": "NORMAL"
+        }
+    ],
+    "config": {
+        "showHitboxes":         false,
+        "showSensors":          true,
+        "showDriveline":        false,
+        "resetAfterTraining":   true,
+        "logTelemetry":         false,
+        "useZeroEpsilon":       false,
+        "useAntialiasing":      false
+    }
+}
